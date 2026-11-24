@@ -48,7 +48,7 @@ func TestBlocksAndForwards(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || string(body) != "hello O'Brien" {
 		t.Errorf("benign: status %d body %q — body must reach upstream intact", resp.StatusCode, body)
 	}
-	if st := s.Metrics.snapshot(); st.Requests != 2 || st.Blocked != 1 {
+	if st := s.Metrics.snapshot(0, 60); st.Requests != 2 || st.Blocked != 1 {
 		t.Errorf("metrics: %+v", st)
 	}
 }

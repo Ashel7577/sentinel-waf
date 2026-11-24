@@ -39,7 +39,7 @@ const (
 
 const (
 	maxInputs = 512
-	maxValue  = 16 << 10
+	maxPart   = 1 << 20 // multipart part read cap (the body itself is already size-limited)
 	maxDepth  = 32
 )
 
@@ -61,9 +61,6 @@ type collector struct{ ins []Input }
 func (c *collector) add(loc, name, val string) {
 	if val == "" || len(c.ins) >= maxInputs {
 		return
-	}
-	if len(val) > maxValue {
-		val = val[:maxValue]
 	}
 	c.ins = append(c.ins, Input{Location: loc, Name: name, Value: val})
 }
@@ -207,7 +204,7 @@ func walkMultipart(c *collector, body []byte, boundary string) bool {
 		// Part.FileName() applies filepath.Base and would hide "../../shell.php".
 		_, dp, _ := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
 		name := dp["name"]
-		data, _ := io.ReadAll(io.LimitReader(part, maxValue))
+		data, _ := io.ReadAll(io.LimitReader(part, maxPart))
 		c.add(locKey, "multipart", name)
 		if fn, ok := dp["filename"]; ok {
 			c.add(locFilename, name, fn)

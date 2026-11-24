@@ -81,7 +81,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if s.limiter != nil && !s.limiter.Allow(ip) {
 		s.Metrics.rateLimited.Add(1)
-		s.Metrics.record(Event{Time: time.Now(), ID: id, IP: ip, Method: r.Method, Path: r.URL.Path, Action: "rate-limited"})
+		s.Metrics.record(Event{Time: time.Now(), ID: id, IP: ip, Method: r.Method, Path: truncate(r.URL.RequestURI(), 200), Action: "rate-limited", Message: "per-IP rate limit exceeded"})
 		w.Header().Set("Retry-After", "1")
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded", "request_id": id})
 		return
@@ -97,6 +97,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if int64(len(b)) > s.opts.MaxBody {
 			s.Metrics.tooLarge.Add(1)
+			s.Metrics.record(Event{Time: time.Now(), ID: id, IP: ip, Method: r.Method, Path: truncate(r.URL.RequestURI(), 200), Action: "too-large", Message: "request body over limit"})
 			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large", "request_id": id})
 			return
 		}
@@ -125,16 +126,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(res.Findings) > 0 || s.opts.LogAll {
 		s.logRequest(id, ip, r, res, action, took)
 	}
-	if len(res.Findings) > 0 {
-		msg := ""
-		if len(res.Findings) > 0 {
-			msg = res.Findings[0].Message
-		}
-		s.Metrics.record(Event{
-			Time: time.Now(), ID: id, IP: ip, Method: r.Method, Path: truncate(r.URL.RequestURI(), 160),
-			Score: res.Score, Action: action, Categories: res.Categories(), Message: msg,
-		})
+	ev := Event{
+		Time: time.Now(), ID: id, IP: ip, Method: r.Method, Path: truncate(r.URL.RequestURI(), 200),
+		Score: res.Score, Action: action, InspectUS: took.Microseconds(),
 	}
+	if len(res.Findings) > 0 {
+		ev.Categories = res.Categories()
+		top := res.Findings[0]
+		for _, f := range res.Findings {
+			if f.Score > top.Score {
+				top = f
+			}
+			if len(ev.Findings) < 12 {
+				ev.Findings = append(ev.Findings, EventFinding{
+					Rule: f.RuleID, Category: f.Category, Location: f.Location, Name: f.Name, Message: f.Message, Score: f.Score,
+				})
+			}
+		}
+		ev.Message = top.Message
+	}
+	s.Metrics.record(ev)
 
 	if block {
 		writeJSON(w, http.StatusForbidden, map[string]any{
@@ -197,7 +208,10 @@ func (s *Server) AdminHandler() http.Handler {
 		w.Write(dashboardHTML)
 	})
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		st := s.Metrics.snapshot()
+		since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+		secs, _ := strconv.Atoi(r.URL.Query().Get("window"))
+		st := s.Metrics.snapshot(since, secs)
+		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"stats": st, "mode": map[bool]string{true: "monitor", false: "block"}[s.opts.Monitor],
 			"threshold": s.engine.Config().Threshold, "paranoia": s.engine.Config().Paranoia,

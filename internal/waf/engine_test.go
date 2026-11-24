@@ -155,3 +155,21 @@ func benchJSON(b *testing.B, body []byte) {
 
 func BenchmarkInspectBenignJSON(b *testing.B) { benchJSON(b, benchBenign) }
 func BenchmarkInspectAttackJSON(b *testing.B) { benchJSON(b, benchAttack) }
+
+// Regression: GoTestWAF "community-128kb-*" — a payload hidden behind large
+// padding must still be found (values used to be truncated at 16 KB).
+func TestPaddingBypass(t *testing.T) {
+	e := newEngine()
+	pad := strings.Repeat("a", 128<<10)
+	for _, p := range []string{"' OR 1=1--", "<script>alert(1)</script>", ";cat /etc/passwd", "x' UNION SELECT password FROM users--"} {
+		if res := inspectQuery(e, pad+" "+p); !res.Blocked {
+			t.Errorf("padded payload not blocked: %q", p)
+		}
+		body := []byte("comment=" + url.QueryEscape(pad+" "+p))
+		r := httptest.NewRequest("POST", "/", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if !e.Inspect(Extract(r, body)).Blocked {
+			t.Errorf("padded form payload not blocked: %q", p)
+		}
+	}
+}

@@ -21,7 +21,9 @@ type token struct {
 	v string // lower-cased value
 }
 
-const maxTokens = 32
+// maxTokens bounds work per value. It must be large: attackers pad payloads
+// with junk so that a WAF which only looks at the beginning misses them.
+const maxTokens = 8192
 
 // Token classes:
 //

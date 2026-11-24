@@ -14,20 +14,46 @@ import (
 // Inspection latency histogram buckets, microseconds.
 var bucketsMicros = []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
 
-// Event is a blocked or flagged request shown on the dashboard.
-type Event struct {
-	Time       time.Time `json:"time"`
-	ID         string    `json:"id"`
-	IP         string    `json:"ip"`
-	Method     string    `json:"method"`
-	Path       string    `json:"path"`
-	Score      int       `json:"score"`
-	Action     string    `json:"action"`
-	Categories []string  `json:"categories"`
-	Message    string    `json:"message"`
+const (
+	seriesLen   = 300 // seconds of per-second history
+	streamLen   = 400 // all recent requests (for the live flow view)
+	threatsLen  = 150 // recent requests with findings
+	maxIPsTrack = 2000
+)
+
+// EventFinding is one finding attached to a dashboard event.
+type EventFinding struct {
+	Rule     int    `json:"rule"`
+	Category string `json:"cat"`
+	Location string `json:"loc"`
+	Name     string `json:"name,omitempty"`
+	Message  string `json:"msg"`
+	Score    int    `json:"score"`
 }
 
-// Metrics collects counters and a latency histogram without external deps.
+// Event is one request as shown on the dashboard.
+type Event struct {
+	Seq        uint64         `json:"seq"`
+	Time       time.Time      `json:"time"`
+	ID         string         `json:"id"`
+	IP         string         `json:"ip"`
+	Method     string         `json:"method"`
+	Path       string         `json:"path"`
+	Score      int            `json:"score"`
+	Action     string         `json:"action"` // allowed | flagged | blocked | rate-limited | too-large
+	Categories []string       `json:"categories,omitempty"`
+	Message    string         `json:"message,omitempty"`
+	InspectUS  int64          `json:"us"`
+	Findings   []EventFinding `json:"findings,omitempty"`
+}
+
+type secondBucket struct {
+	sec                       int64
+	allowed, blocked, flagged int64
+}
+
+// Metrics collects counters, a latency histogram, a per-second time series
+// and recent events, without external dependencies.
 type Metrics struct {
 	start time.Time
 
@@ -36,22 +62,30 @@ type Metrics struct {
 	hist     [11]atomic.Int64 // len(bucketsMicros)+1
 	sumMicro atomic.Int64
 
-	mu     sync.Mutex
-	byCat  map[string]int64
-	byRule map[int]int64
-	recent []Event // ring, newest last
+	mu       sync.Mutex
+	seq      uint64
+	byCat    map[string]int64
+	byRule   map[int]int64
+	ruleName map[int]string
+	byIP     map[string]int64 // requests with findings per client IP
+	byLoc    map[string]int64
+	series   [seriesLen]secondBucket
+	stream   []Event
+	threats  []Event
 }
 
 func newMetrics() *Metrics {
-	return &Metrics{start: time.Now(), byCat: map[string]int64{}, byRule: map[int]int64{}}
+	return &Metrics{
+		start: time.Now(), byCat: map[string]int64{}, byRule: map[int]int64{},
+		ruleName: map[int]string{}, byIP: map[string]int64{}, byLoc: map[string]int64{},
+	}
 }
 
 func (m *Metrics) observe(res waf.Result, d time.Duration) {
 	m.requests.Add(1)
 	us := float64(d.Nanoseconds()) / 1e3
 	m.sumMicro.Add(int64(us))
-	i := sort.SearchFloat64s(bucketsMicros, us)
-	m.hist[i].Add(1)
+	m.hist[sort.SearchFloat64s(bucketsMicros, us)].Add(1)
 	if len(res.Findings) == 0 {
 		return
 	}
@@ -59,19 +93,52 @@ func (m *Metrics) observe(res waf.Result, d time.Duration) {
 	for _, c := range res.Categories() {
 		m.byCat[c]++
 	}
+	seenRule := map[int]bool{}
 	for _, f := range res.Findings {
-		m.byRule[f.RuleID]++
+		if !seenRule[f.RuleID] {
+			seenRule[f.RuleID] = true
+			m.byRule[f.RuleID]++
+			m.ruleName[f.RuleID] = f.Message
+		}
+		m.byLoc[f.Location]++
 	}
 	m.mu.Unlock()
 }
 
+// record stores an event for the live views and the time series.
 func (m *Metrics) record(e Event) {
 	m.mu.Lock()
-	m.recent = append(m.recent, e)
-	if len(m.recent) > 100 {
-		m.recent = m.recent[len(m.recent)-100:]
+	defer m.mu.Unlock()
+	m.seq++
+	e.Seq = m.seq
+
+	sec := e.Time.Unix()
+	b := &m.series[sec%seriesLen]
+	if b.sec != sec {
+		*b = secondBucket{sec: sec}
 	}
-	m.mu.Unlock()
+	switch e.Action {
+	case "blocked", "rate-limited", "too-large":
+		b.blocked++
+	case "flagged":
+		b.flagged++
+	default:
+		b.allowed++
+	}
+
+	m.stream = append(m.stream, e)
+	if len(m.stream) > streamLen {
+		m.stream = m.stream[len(m.stream)-streamLen:]
+	}
+	if e.Action != "allowed" {
+		m.threats = append(m.threats, e)
+		if len(m.threats) > threatsLen {
+			m.threats = m.threats[len(m.threats)-threatsLen:]
+		}
+		if _, ok := m.byIP[e.IP]; ok || len(m.byIP) < maxIPsTrack {
+			m.byIP[e.IP]++
+		}
+	}
 }
 
 // quantile estimates a latency quantile (µs) from the histogram.
@@ -93,10 +160,25 @@ func (m *Metrics) quantile(q float64) float64 {
 			if i < len(bucketsMicros) {
 				return bucketsMicros[i]
 			}
-			return bucketsMicros[len(bucketsMicros)-1]
+			break
 		}
 	}
 	return bucketsMicros[len(bucketsMicros)-1]
+}
+
+// Named counts for sorted lists.
+type Named struct {
+	Key   string `json:"key"`
+	Name  string `json:"name,omitempty"`
+	Count int64  `json:"count"`
+}
+
+// Point is one second of the time series.
+type Point struct {
+	T       int64 `json:"t"`
+	Allowed int64 `json:"a"`
+	Blocked int64 `json:"b"`
+	Flagged int64 `json:"f"`
 }
 
 // Stats is the JSON document served to the dashboard.
@@ -112,11 +194,36 @@ type Stats struct {
 	P50InspectUS   float64          `json:"p50_inspect_us_le"`
 	P99InspectUS   float64          `json:"p99_inspect_us_le"`
 	Categories     map[string]int64 `json:"categories"`
-	TopRules       map[int]int64    `json:"top_rules"`
-	Recent         []Event          `json:"recent"`
+	TopRules       []Named          `json:"top_rules"`
+	TopIPs         []Named          `json:"top_ips"`
+	UniqueIPs      int              `json:"unique_attackers"`
+	Locations      []Named          `json:"locations"`
+	Histogram      []int64          `json:"histogram"`
+	HistBuckets    []float64        `json:"histogram_buckets_us"`
+	Series         []Point          `json:"series"`
+	Seq            uint64           `json:"seq"`
+	Events         []Event          `json:"events"`  // stream events with seq > since (oldest first)
+	Threats        []Event          `json:"threats"` // newest first
 }
 
-func (m *Metrics) snapshot() Stats {
+func topN[K comparable](m map[K]int64, n int, key func(K) string, name func(K) string) []Named {
+	out := make([]Named, 0, len(m))
+	for k, v := range m {
+		out = append(out, Named{Key: key(k), Name: name(k), Count: v})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Key < out[j].Key
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+func (m *Metrics) snapshot(since uint64, seriesSecs int) Stats {
 	s := Stats{
 		UptimeSeconds:  int64(time.Since(m.start).Seconds()),
 		Requests:       m.requests.Load(),
@@ -128,29 +235,60 @@ func (m *Metrics) snapshot() Stats {
 		P50InspectUS:   m.quantile(0.50),
 		P99InspectUS:   m.quantile(0.99),
 		Categories:     map[string]int64{},
-		TopRules:       map[int]int64{},
+		HistBuckets:    bucketsMicros,
 	}
 	if s.Requests > 0 {
 		s.AvgInspectUS = float64(m.sumMicro.Load()) / float64(s.Requests)
 	}
+	for i := range m.hist {
+		s.Histogram = append(s.Histogram, m.hist[i].Load())
+	}
+
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for k, v := range m.byCat {
 		s.Categories[k] = v
 	}
-	for k, v := range m.byRule {
-		s.TopRules[k] = v
+	s.TopRules = topN(m.byRule, 8, func(k int) string { return fmt.Sprint(k) }, func(k int) string { return m.ruleName[k] })
+	s.UniqueIPs = len(m.byIP)
+	s.TopIPs = topN(m.byIP, 8, func(k string) string { return k }, func(string) string { return "" })
+	s.Locations = topN(m.byLoc, 8, func(k string) string { return k }, func(string) string { return "" })
+
+	if seriesSecs <= 0 || seriesSecs > seriesLen {
+		seriesSecs = 120
 	}
-	s.Recent = make([]Event, len(m.recent))
-	for i := range m.recent { // newest first
-		s.Recent[i] = m.recent[len(m.recent)-1-i]
+	now := time.Now().Unix()
+	for t := now - int64(seriesSecs) + 1; t <= now; t++ {
+		b := m.series[t%seriesLen]
+		p := Point{T: t}
+		if b.sec == t {
+			p.Allowed, p.Blocked, p.Flagged = b.allowed, b.blocked, b.flagged
+		}
+		s.Series = append(s.Series, p)
 	}
-	m.mu.Unlock()
+
+	s.Seq = m.seq
+	for _, e := range m.stream {
+		if e.Seq > since {
+			s.Events = append(s.Events, e)
+		}
+	}
+	if len(s.Events) > 250 {
+		s.Events = s.Events[len(s.Events)-250:]
+	}
+	n := len(m.threats)
+	if n > 60 {
+		n = 60
+	}
+	for i := 0; i < n; i++ {
+		s.Threats = append(s.Threats, m.threats[len(m.threats)-1-i])
+	}
 	return s
 }
 
 // writePrometheus emits the Prometheus text exposition format.
 func (m *Metrics) writePrometheus(w io.Writer) {
-	s := m.snapshot()
+	s := m.snapshot(^uint64(0), 1)
 	counter := func(name, help string, v int64) {
 		fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n%s %d\n", name, help, name, name, v)
 	}
@@ -174,10 +312,10 @@ func (m *Metrics) writePrometheus(w io.Writer) {
 	fmt.Fprintf(w, "# HELP waf_inspect_duration_seconds Time spent inspecting a request.\n# TYPE waf_inspect_duration_seconds histogram\n")
 	var cum int64
 	for i, b := range bucketsMicros {
-		cum += m.hist[i].Load()
+		cum += s.Histogram[i]
 		fmt.Fprintf(w, "waf_inspect_duration_seconds_bucket{le=\"%g\"} %d\n", b/1e6, cum)
 	}
-	cum += m.hist[len(bucketsMicros)].Load()
+	cum += s.Histogram[len(bucketsMicros)]
 	fmt.Fprintf(w, "waf_inspect_duration_seconds_bucket{le=\"+Inf\"} %d\n", cum)
 	fmt.Fprintf(w, "waf_inspect_duration_seconds_sum %g\n", float64(m.sumMicro.Load())/1e6)
 	fmt.Fprintf(w, "waf_inspect_duration_seconds_count %d\n", cum)

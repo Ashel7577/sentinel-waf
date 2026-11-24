@@ -8,30 +8,38 @@ Sentinel is a reverse proxy written in Go that sits in front of a web app and bl
 
 ![Live dashboard](docs/dashboard.png)
 
-![Real requests through the proxy](docs/demo.png)
+**New here? Read [How it works](docs/HOW-IT-WORKS.md)** for a step-by-step walkthrough with diagrams and screenshots.
 
 ## Results
 
-**Third-party corpus.** Attacks come from [SecLists](https://github.com/danielmiessler/SecLists) (SQLi, XSS, LFI, commix command injection). Benign traffic is 37,728 lines: two full public-domain novels, 2,454 real browser User-Agents, 4,751 web paths and 10,735 names. Every payload is tested in 4 places (query string, form body, JSON body, header) at paranoia level 1 with a block threshold of 5 for both WAFs. The sample is 400 per category; see [`results-compare-external.md`](results-compare-external.md).
+These are GitHub CI numbers on Linux, regenerated on every push. Download them from the `compare-results` and `gotestwaf-report` artifacts of any run.
+
+**Third-party corpus vs OWASP Coraza + CRS v4.25.** Attacks come from [SecLists](https://github.com/danielmiessler/SecLists) (SQLi, XSS, LFI, commix command injection). Benign traffic is 37,728 lines: two full public-domain novels, 2,454 real browser User-Agents, 4,751 web paths and 10,735 names. Every payload is tested in the query string, form body, JSON body and a header, at paranoia level 1 with a block threshold of 5 for both WAFs. The sample is 400 per category.
 
 | | Sentinel WAF | Coraza + OWASP CRS v4.25 |
 |---|---|---|
 | Command injection | **100.0%** | 43.1% |
 | SQL injection | **76.1%** | 46.4% |
-| Path traversal / LFI | **64.5%** | 28.9% |
+| Path traversal / LFI | 64.5% | **69.6%** |
 | XSS | **98.6%** | 94.4% |
-| **Detection, query + form + JSON** | **83.1%** | 55.7% |
-| **False positives** | **0.00%** | 0.20% |
-| Mean inspection latency | **0.18 ms** | 4.6 ms |
+| **Detection, query + form + JSON** | **83.1%** | 71.1% |
+| **False positives** | **0.0%** | 0.3% |
+| Latency per request, mean / p99 | **46 µs / 193 µs** | 1.19 ms / 4.93 ms |
 
-On the full unsampled third-party set, Sentinel blocks 37,468 of 39,188 attack requests and wrongly blocks **4 of 150,912** benign ones (`go run ./cmd/eval -corpus eval/external`).
+On the full unsampled set, Sentinel wrongly blocks **4 of 150,912** benign requests.
 
-Latency was measured in-process on a 2012 Intel i3-3217U laptop, and covers request parsing plus inspection for both WAFs. CI reruns everything on GitHub's Linux runners.
+**Independent test: [GoTestWAF](https://github.com/wallarm/gotestwaf)** (Wallarm), run against the live proxy in CI:
 
-**Caveats, stated plainly:**
-- At paranoia level 1, CRS deliberately does not inspect arbitrary custom headers. The query + form + JSON row above excludes headers for that reason.
-- CRS ships hundreds of rules covering protocol enforcement, response inspection and more. Sentinel covers request-side injection classes only.
-- SecLists traversal lists contain many entries that are not attacks in any context (such as `..2f..2f`, with the `%` missing). Both WAFs are scored on them unchanged.
+| Attacks blocked | API attacks blocked | Normal requests passed | Overall |
+|---|---|---|---|
+| 44% | 57% | 97.9% | **64%** |
+
+This is the weakest result, and I'm leaving it visible on purpose. GoTestWAF re-encodes payloads (Base64, JS Unicode) and sends them through gRPC, GraphQL and SOAP. It also found a real padding-bypass bug, which is now fixed with a regression test. The [known gaps](docs/HOW-IT-WORKS.md#5-known-gaps-the-honest-list) section lists what's next.
+
+**Caveats:**
+- At paranoia level 1, CRS deliberately does not inspect arbitrary custom headers, so the headline row excludes headers.
+- CRS ships far more than injection rules (protocol enforcement, response inspection). Sentinel only inspects requests.
+- Path traversal is the one category where CRS wins.
 
 ## How it works
 
@@ -65,6 +73,7 @@ There are no external dependencies: the WAF uses only the Go standard library.
 go build -o bin/ ./cmd/...
 ./bin/target -listen 127.0.0.1:8000                       # demo upstream (simulates sinks, executes nothing)
 ./bin/waf -listen :8080 -upstream http://127.0.0.1:8000   # dashboard on http://127.0.0.1:9090
+./bin/trafficgen -url http://127.0.0.1:8080 -rps 20       # optional: live mixed traffic for the dashboard
 
 curl "localhost:8080/search?q=1'%20UNION%20SELECT%20password%20FROM%20users--"   # 403
 curl "localhost:8080/search?q=O'Reilly"                                          # 200
@@ -108,9 +117,9 @@ eval/corpus        regression corpus       internal/server      proxy, rate limi
 ## Limitations and next steps
 
 - Response inspection and outbound data-leak detection are not implemented.
-- Traversal detection on raw wordlists (64.5%) is the weakest category. The next step is a path canonicalizer that resolves `..` sequences against a virtual root.
+- Path traversal (64.5%, the one category where CRS wins) needs work. The next step is a path canonicalizer that resolves `..` sequences against a virtual root.
 - The ML stage from the original plan is not built yet: a character n-gram model trained on CSIC 2010, evaluated with a source-disjoint split.
-- Benchmarks come from a low-end laptop, so absolute latency on server hardware will be lower.
+- GoTestWAF coverage: NoSQL, mail-header injection, Base64-encoded payloads, GraphQL and gRPC bodies.
 
 ## License
 
