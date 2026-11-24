@@ -32,7 +32,7 @@ On the full unsampled set, Sentinel wrongly blocks **4 of 150,912** benign reque
 
 | Attacks blocked | API attacks blocked | Normal requests passed | Overall |
 |---|---|---|---|
-| 44% | 57% | 97.9% | **64%** |
+| 46% | 57% | 97.9% | **64.5%** |
 
 This is the weakest result, and I'm leaving it visible on purpose. GoTestWAF re-encodes payloads (Base64, JS Unicode) and sends them through gRPC, GraphQL and SOAP. It also found a real padding-bypass bug, which is now fixed with a regression test. The [known gaps](docs/HOW-IT-WORKS.md#5-known-gaps-the-honest-list) section lists what's next.
 

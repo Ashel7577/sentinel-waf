@@ -186,12 +186,12 @@ On the full unsampled set, Sentinel wrongly blocks **4 of 150,912** benign reque
 
 | | Score |
 |---|---|
-| Attacks blocked (application security) | 44% |
+| Attacks blocked (application security) | 46% (44% before the padding fix) |
 | API attacks blocked | 57% |
 | Normal requests passed | 97.9% |
-| **Overall** | **64%** |
+| **Overall** | **64.5%** |
 
-GoTestWAF re-encodes the same payload in many ways (Base64, JS Unicode, XML entities) and places it in gRPC, GraphQL, SOAP and multipart bodies, so it exercises a much wider attack surface than the other tests. It also found **a real bug**: payloads hidden behind more than 16 KB of padding got through, because inspection stopped at 16 KB. That's now fixed, and there's a regression test for 128 KB of padding.
+GoTestWAF re-encodes the same payload in many ways (Base64, JS Unicode, XML entities) and places it in gRPC, GraphQL, SOAP and multipart bodies, so it exercises a much wider attack surface than the other tests. It also found **a real bug**: payloads hidden behind more than 16 KB of padding got through, because inspection stopped at 16 KB. That's now fixed: all 12 padded tests (16 KB to 128 KB) are blocked, and a regression test covers it.
 
 ---
 
