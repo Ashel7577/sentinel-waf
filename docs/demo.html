@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sentinel demo</title>
+<style>
+body{margin:0;background:#0d1117;font:14px/1.55 Consolas,"Cascadia Mono",monospace;color:#c9d1d9}
+.win{margin:18px;border:1px solid #30363d;border-radius:8px;overflow:hidden}
+.bar{background:#161b22;padding:8px 12px;color:#8b949e;font-family:Segoe UI,sans-serif;font-size:13px}
+pre{margin:0;padding:14px 16px;white-space:pre}
+.ok{color:#3fb950}.no{color:#f85149}.d{color:#8b949e}.c{color:#79c0ff}
+</style></head><body>
+<div class="win"><div class="bar">sentinel-waf · real requests through the proxy (captured output)</div>
+<pre><span class="d">$ ./bin/waf -listen 127.0.0.1:18080 -upstream http://127.0.0.1:18000</span>
+<span class="c">sentinel-waf  proxy 127.0.0.1:18080 -> http://127.0.0.1:18000  |  dashboard http://127.0.0.1:19090  |  mode=block threshold=5 paranoia=1 rules=20</span>
+
+benign search                 <span class="ok">200</span>  {"query":"O'Reilly books", ...}
+SQLi in query                 <span class="no">403</span>  {"error":"request blocked by sentinel-waf","request_id":"318590e9ce547c85"}
+XSS in JSON body              <span class="no">403</span>  {"error":"request blocked by sentinel-waf","request_id":"7a78c429c0ff1112"}
+cmdi in form                  <span class="no">403</span>  {"error":"request blocked by sentinel-waf","request_id":"008f1c6c2b1d7915"}
+traversal in path             <span class="no">403</span>  {"error":"request blocked by sentinel-waf","request_id":"5a9ce0fb454971a4"}
+Log4Shell in header           <span class="no">403</span>  {"error":"request blocked by sentinel-waf","request_id":"5fb8a04060335c9d"}
+SQLi in cookie                <span class="no">403</span>  {"error":"request blocked by sentinel-waf","request_id":"b81e4cffcbeac2d4"}
+benign JSON order             <span class="ok">200</span>  {"body_bytes":61,"method":"POST","uri":"/api/orders"}
+sqlmap scanner UA             <span class="no">403</span>  {"error":"request blocked by sentinel-waf","request_id":"dcf366ea0c6612b8"}
+
+<span class="d">$ tail -1 waf.log</span>
+{"level":"INFO","msg":"request","id":"dcf366ea0c6612b8","ip":"127.0.0.1","method":"GET","uri":"/",
+ "action":"blocked","score":5,"findings":[{"rule":9011,"cat":"scanner","loc":"header","name":"user-agent"}]}</pre></div>
+</body></html>

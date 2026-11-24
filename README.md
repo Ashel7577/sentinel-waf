@@ -1,10 +1,14 @@
 # Sentinel WAF
 
-A reverse-proxy web application firewall written in Go, with its own SQL tokenizer, an Aho-Corasick prefilter and anomaly scoring. It ships with an evaluation harness that measures it against **OWASP Coraza + Core Rule Set v4**, the open-source industry baseline, on identical requests.
-
-Every number below can be reproduced with one command. The numbers are not cherry-picked: the third-party results use attack and benign data I did not write.
-
 ![ci](https://github.com/Ashel7577/sentinel-waf/actions/workflows/ci.yml/badge.svg)
+
+I built Sentinel because my first WAF project didn't hold up when I looked at it honestly. It was mostly regexes, the "ML" part never actually ran, and I had no idea how good or bad it really was. So this time the rule was simple: every claim has to come with a number, and the number has to come from data I didn't write myself.
+
+Sentinel is a reverse proxy written in Go that sits in front of a web app and blocks attacks before they reach it. Instead of matching keywords, it tokenizes input the way a database would. That is the difference between blocking `' OR 1=1--` and letting `O'Reilly and sons` through. To keep myself honest, I benchmarked it head to head against **OWASP Coraza + Core Rule Set v4**, the open-source WAF most people actually deploy, on the exact same requests.
+
+![Live dashboard](docs/dashboard.png)
+
+![Real requests through the proxy](docs/demo.png)
 
 ## Results
 
