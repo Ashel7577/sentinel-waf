@@ -1,0 +1,134 @@
+hello world
+John O'Brien
+O'Reilly Media
+it's a beautiful day
+I'll be there at 5 o'clock
+rock 'n' roll
+the students' and teachers' lounge
+Tom & Jerry
+R&D department
+salt & pepper
+fish & chips
+AT&T customer support
+Q&A session
+select your preferred plan from the list below
+please select a size from the dropdown
+drop-down menu not working
+update my shipping address
+delete my account please
+insert coin to continue
+1 or 2 items
+I need 3 or 4 tickets
+order by date
+sort by price ascending
+group by category
+union station tickets
+trade union membership
+where is my order?
+create a new playlist
+alter the dress length
+table for two at 7pm
+null and void
+true or false question
+she said "hello" and left
+"quoted text" with 'single quotes'
+5' 11" tall
+my password is P@ssw0rd!
+email@example.com
+john.o'neil@example.com
+https://www.example.com/search?q=shoes&page=2
+http://localhost:3000/dashboard
+/images/logo.png
+docs/getting-started.md
+2024-05-17T10:30:00Z
++1 (555) 123-4567
+123 Main St, Apt #4, Springfield
+C++ programming tutorial
+C# vs Java
+1 + 1 = 2
+x = y * 2
+50% off sale
+price < 100 and rating > 4
+a <= b
+I <3 this product
+<3 love it
+:-) great
+Hello; how are you?
+first; second; third
+coffee | tea | water
+cats & dogs
+eat, sleep, repeat
+find my phone
+ping pong table
+echo dot speaker
+cat food 5kg
+ls alignment wheels
+head and shoulders shampoo
+id card renewal
+the -- dash is used here
+-- signed, the team
+#hashtag #summer
+50/50 chance
+../ is a relative path
+see ./readme for details
+function(){ return 1; }
+SELECT is a keyword in SQL
+How do I use UNION in SQL?
+My favorite song is "Drop it like it's hot"
+Résumé of José Müller
+日本語のテキスト
+Привет мир
+emoji 🎉🔥
+{"name": "test", "value": 42}
+[1, 2, 3]
+key=value&other=thing
+Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U
+dGhpcyBpcyBiYXNlNjQ=
+550e8400-e29b-41d4-a716-446655440000
+The <b>bold</b> text
+<p>paragraph</p>
+<i>italic</i> and <em>emphasis</em>
+a < b > c
+2 > 1
+script writing course
+javascript tutorial for beginners
+onload event explained
+how to use onclick in react
+the alert was triggered
+document management system
+evaluation report 2024
+iframe vs embed comparison
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36
+it's 100% cotton; machine wash
+Don't forget: meeting at 10; bring laptop
+O'Neil & Sons, Ltd.
+sales & marketing
+Jack's & Jill's
+pay $5 or $10
+item #42 or #43
+user's guide - chapter 1
+'single' and 'double'
+"he said 'no' and 'yes'"
+WHERE ARE YOU
+or else
+and then
+admin
+root
+password123
+I can't make it; sorry
+Call me at 10 or 11
+we're 2 or 3 minutes away
+Macy's or Sears
+She's in the "top 10" list
+size: M & L
+https://example.com/a/b/../c
+weather in New York; 5 day forecast
+Kids' & Adults' tickets
+I'd like 1 or 2 more
+error: file not found (code 404)
+C:\Users\Public\Documents
+path/to/my file.txt
+Use <br> for line breaks
+The price is $(19.99) after discount
+https://example.com/?redirect=/home
+x' is a variable name

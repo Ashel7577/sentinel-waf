@@ -1,0 +1,92 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: vet
+        run: go vet ./...
+      - name: unit + regression tests (race detector)
+        run: go test -race -count=1 ./...
+      - name: benchmarks
+        run: go test -run '^$' -bench . -benchmem ./internal/waf/ | tee bench.txt
+      - name: evaluate on built-in corpus
+        run: go run ./cmd/eval -corpus eval/corpus -out results-builtin.md -misses misses-builtin.tsv
+      - name: evaluate on third-party SecLists corpus
+        run: |
+          bash scripts/fetch-external.sh
+          go run ./cmd/eval -corpus eval/external -out results-external.md -misses misses-external.tsv
+      - name: summary
+        run: |
+          { cat results-builtin.md; echo; echo "### Third-party corpus (SecLists)"; cat results-external.md; echo; echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: |
+            results-*.md
+            misses-*.tsv
+            bench.txt
+
+  compare:
+    # Head-to-head with OWASP Coraza + Core Rule Set on identical requests.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: fetch third-party corpora
+        run: bash scripts/fetch-external.sh
+      - name: compare (built-in corpus)
+        working-directory: bench/compare
+        run: go run . -corpus ../../eval/corpus -out ../../compare-builtin.md
+      - name: compare (third-party corpus)
+        working-directory: bench/compare
+        run: go run . -corpus ../../eval/external -max 400 -out ../../compare-external.md
+      - name: summary
+        run: cat compare-builtin.md compare-external.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compare-results
+          path: compare-*.md
+
+  gotestwaf:
+    # End-to-end: real proxy in front of the target app, attacked by Wallarm's
+    # GoTestWAF (an independent, widely used WAF test suite).
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: build and start target + WAF
+        run: |
+          go build -o bin/waf ./cmd/waf
+          go build -o bin/target ./cmd/target
+          ./bin/target -listen 127.0.0.1:8000 &
+          ./bin/waf -listen 127.0.0.1:8080 -upstream http://127.0.0.1:8000 -log waf.log &
+          sleep 2
+          curl -fsS http://127.0.0.1:8080/ >/dev/null
+      - name: run GoTestWAF
+        run: |
+          mkdir -p reports
+          docker run --rm --network host -v "$PWD/reports:/app/reports" wallarm/gotestwaf \
+            --url=http://127.0.0.1:8080/ --noEmailReport --blockStatusCodes=403 \
+            --reportFormat=html --reportPath=/app/reports --reportName=gotestwaf | tee reports/gotestwaf.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gotestwaf-report
+          path: |
+            reports/
+            waf.log

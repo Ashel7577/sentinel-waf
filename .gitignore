@@ -1,0 +1,12 @@
+/bin/
+*.exe
+*.log
+*.out
+*.prof
+*.test
+/eval/external/
+/reports/
+/results/
+.env
+.idea/
+.vscode/

