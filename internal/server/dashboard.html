@@ -69,7 +69,7 @@ main{padding:22px 26px 40px;max-width:1680px;margin:0 auto}
 .panel h2 .right{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:var(--faint);font-size:12px}
 .span8{grid-column:span 8}.span4{grid-column:span 4}.span12{grid-column:span 12}.span7{grid-column:span 7}.span5{grid-column:span 5}
 
-#flow{width:100%;height:330px;display:block;border-radius:10px}
+#flow{width:100%;height:360px;display:block;border-radius:10px}
 #tp{width:100%;height:230px;display:block}
 .legend{display:flex;gap:16px;font-size:12px;color:var(--dim)}
 .legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--c)}
@@ -142,7 +142,7 @@ footer a{color:var(--dim)}
   <div class="brand">
     <div class="logo">
       <svg viewBox="0 0 40 40" fill="none"><path d="M20 3 6 8.5v9.7c0 8.7 5.9 15.9 14 18.8 8.1-2.9 14-10.1 14-18.8V8.5L20 3Z" stroke="#22d3ee" stroke-width="2" fill="rgba(34,211,238,.08)"/><path d="m14 20 4.2 4.2L27 15.5" stroke="#34d399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div class="scan"></div>
+
     </div>
     <div><h1>Sentinel WAF</h1><small>Live threat operations</small></div>
   </div>
@@ -168,7 +168,7 @@ footer a{color:var(--dim)}
 
   <section class="grid">
     <div class="panel span8">
-      <h2>Live traffic flow <span class="live">LIVE</span><span class="right" id="flow-note">every dot is a real request</span></h2>
+      <h2>Live traffic flow <span class="live">LIVE</span><span class="right" id="flow-note">one dot = one real request · real order &amp; timing</span></h2>
       <canvas id="flow"></canvas>
     </div>
     <div class="panel span4">
@@ -252,156 +252,126 @@ function spark(id, vals, color) {
   ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.shadowColor = color; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0;
 }
 
-/* ---------------- live flow ---------------- */
-const flow = { parts: [], sparks: [], labels: [], ripples: [], pending: [], shieldHeat: 0, originPulse: 0, t: 0, allowed: 0, blocked: 0, srcs: [] };
-function spawn(ev) {
-  if (flow.pending.length > 600) flow.pending.splice(0, flow.pending.length - 600);
-  flow.pending.push(ev);
-}
-function flowFrame(dt) {
-  const cv = $("flow"); const [ctx, w, h] = sizeCanvas(cv);
-  flow.t += dt;
-  const sx = 70, shX = w * 0.55, oX = w - 80, cy = h / 2;
-
-  // release pending events smoothly across the poll interval
-  const rel = Math.min(flow.pending.length, Math.max(1, Math.ceil(flow.pending.length * dt * 1.6)));
-  for (let i = 0; i < rel; i++) {
-    const ev = flow.pending.shift(); if (!ev) break;
-    const lane = (hashIP(ev.ip) % 1000) / 1000;
-    const y0 = 40 + lane * (h - 80);
-    const bad = ev.action !== "allowed" && ev.action !== "flagged";
-    flow.parts.push({ x: sx, y: y0, y0, t: 0, speed: 0.55 + Math.random() * 0.35, bad, flag: ev.action === "flagged",
-      col: bad ? catColor((ev.categories || [])[0]) : ev.action === "flagged" ? "#fbbf24" : "#34d399", ev, stage: 0 });
+/* ---------------- live flow: one dot = one real request ----------------
+   Dots are replayed in the real order and with the real spacing of the
+   server timestamps, all at the same speed, on a lane chosen by client IP.
+   A dot is neutral until the DETECT stage (that is where Sentinel learns
+   what it is), shows its real score at SCORE, and at DECISION is either
+   stopped (403) or continues to the app. Nothing here is random. */
+const LANES = 8;
+const flow = { parts: [], queue: [], fx: [], laneIP: Array(LANES).fill(""), laneUsed: Array(LANES).fill(0), staged: [0, 0, 0, 0], delivered: 0, stopped: 0 };
+// An active IP keeps its lane; a new IP takes the least recently used lane.
+function laneFor(ip, now) {
+  let i = flow.laneIP.indexOf(ip);
+  if (i < 0) {
+    // prefer a lane with nothing in flight, so a label never changes under a moving request
+    const busy = new Set(flow.parts.map(p => p.lane));
+    let best = -1;
+    for (let k = 0; k < LANES; k++) if (!busy.has(k) && (best < 0 || flow.laneUsed[k] < flow.laneUsed[best])) best = k;
+    if (best < 0) { best = 0; for (let k = 1; k < LANES; k++) if (flow.laneUsed[k] < flow.laneUsed[best]) best = k; }
+    i = best; flow.laneIP[i] = ip;
   }
-
-  ctx.clearRect(0, 0, w, h);
-  // backdrop
-  const bg = ctx.createLinearGradient(0, 0, w, 0);
-  bg.addColorStop(0, "rgba(96,165,250,.05)"); bg.addColorStop(.55, "rgba(34,211,238,.06)"); bg.addColorStop(1, "rgba(52,211,153,.05)");
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = "rgba(120,150,220,.07)"; ctx.lineWidth = 1;
-  for (let gx = (flow.t * 30) % 40; gx < w; gx += 40) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, h); ctx.stroke(); }
-  for (let gy = 20; gy < h; gy += 40) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke(); }
-
-  // lanes into the shield
-  ctx.strokeStyle = "rgba(34,211,238,.08)"; ctx.lineWidth = 1;
-  for (let i = 0; i < 9; i++) { const y0 = 40 + i / 8 * (h - 80); ctx.beginPath(); ctx.moveTo(sx, y0);
-    ctx.bezierCurveTo(sx + (shX - sx) * .5, y0, shX - 120, cy, shX - 34, cy); ctx.stroke(); }
-  ctx.strokeStyle = "rgba(52,211,153,.18)"; ctx.setLineDash([6, 8]); ctx.lineDashOffset = -flow.t * 40;
-  ctx.beginPath(); ctx.moveTo(shX + 36, cy); ctx.lineTo(oX - 34, cy); ctx.stroke(); ctx.setLineDash([]);
-
-  // internet node
-  drawNode(ctx, sx, cy, "INTERNET", "#60a5fa", 0);
-  for (let i = 0; i < 7; i++) { const a = flow.t * .4 + i * 0.9, r = 26 + (i % 3) * 7;
-    ctx.fillStyle = "rgba(96,165,250,.6)"; ctx.beginPath(); ctx.arc(sx + Math.cos(a) * r, cy + Math.sin(a) * r, 1.8, 0, 7); ctx.fill(); }
-  // origin node
-  drawServer(ctx, oX, cy);
-  // shield
-  drawShield(ctx, shX, cy);
-
-  // particles
-  for (let i = flow.parts.length - 1; i >= 0; i--) {
-    const p = flow.parts[i];
-    p.t += dt * p.speed;
-    let x, y;
-    if (p.stage === 0) {
-      const t = Math.min(1, p.t), it = 1 - t;
-      const x0 = sx, x1 = sx + (shX - sx) * .5, x2 = shX - 120, x3 = shX - 34;
-      x = it*it*it*x0 + 3*it*it*t*x1 + 3*it*t*t*x2 + t*t*t*x3;
-      y = it*it*it*p.y0 + 3*it*it*t*p.y0 + 3*it*t*t*cy + t*t*t*cy;
-      if (t >= 1) {
-        if (p.bad) { burst(shX - 30, cy, p.col, p.ev); flow.parts.splice(i, 1); flow.blocked++; continue; }
-        p.stage = 1; p.t = 0;
-      }
-    } else {
-      const t = Math.min(1, p.t * 1.6);
-      x = shX + 36 + (oX - 34 - shX - 36) * t; y = cy + Math.sin(t * Math.PI) * (p.flag ? -8 : 6);
-      if (t >= 1) { flow.originPulse = 1; flow.allowed++; flow.parts.splice(i, 1); continue; }
-    }
-    ctx.fillStyle = p.col; ctx.shadowColor = p.col; ctx.shadowBlur = 12;
-    ctx.beginPath(); ctx.arc(x, y, p.bad ? 3.4 : 2.6, 0, 7); ctx.fill();
-    ctx.shadowBlur = 0; ctx.globalAlpha = .25; ctx.beginPath(); ctx.arc(x - 6, y, 2, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
-  }
-  if (flow.parts.length > 700) flow.parts.splice(0, flow.parts.length - 700);
-
-  // sparks, ripples, labels
-  for (let i = flow.sparks.length - 1; i >= 0; i--) {
-    const s = flow.sparks[i]; s.life -= dt * 1.6; if (s.life <= 0) { flow.sparks.splice(i, 1); continue; }
-    s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= .96; s.vy *= .96;
-    ctx.globalAlpha = s.life; ctx.fillStyle = s.c; ctx.fillRect(s.x, s.y, 2.2, 2.2);
-  }
-  ctx.globalAlpha = 1;
-  for (let i = flow.ripples.length - 1; i >= 0; i--) {
-    const r = flow.ripples[i]; r.life -= dt * 1.5; if (r.life <= 0) { flow.ripples.splice(i, 1); continue; }
-    ctx.strokeStyle = r.c; ctx.globalAlpha = r.life * .7; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(shX, cy, 44 + (1 - r.life) * 40, Math.PI * .6, Math.PI * 1.4); ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-  ctx.font = "600 11.5px Inter, system-ui, sans-serif"; ctx.textAlign = "center";
-  for (let i = flow.labels.length - 1; i >= 0; i--) {
-    const l = flow.labels[i]; l.life -= dt * .7; if (l.life <= 0) { flow.labels.splice(i, 1); continue; }
-    l.y -= dt * 26; ctx.globalAlpha = Math.min(1, l.life * 1.4); ctx.fillStyle = l.c;
-    ctx.fillText(l.text, l.x, l.y);
-  }
-  ctx.globalAlpha = 1; ctx.textAlign = "left";
-  flow.shieldHeat = Math.max(0, flow.shieldHeat - dt * 1.4);
-  flow.originPulse = Math.max(0, flow.originPulse - dt * 2);
-
-  // counters
-  ctx.font = "700 12px Inter, system-ui, sans-serif";
-  ctx.fillStyle = "#fb3b5c"; ctx.fillText(`⛔ ${fmt(tweens['k-blk'] ? tweens['k-blk'].cur : 0)} stopped at the edge`, shX - 90, h - 16);
-  ctx.fillStyle = "#34d399"; ctx.textAlign = "right"; ctx.fillText(`✓ ${fmt(tweens['k-ok'] ? tweens['k-ok'].cur : 0)} delivered`, oX + 40, h - 16); ctx.textAlign = "left";
+  flow.laneUsed[i] = now; return i;
 }
 function hashIP(s) { let h = 2166136261; for (const c of (s || "")) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0; return h; }
-function burst(x, y, c, ev) {
-  for (let k = 0; k < 14; k++) { const a = Math.PI * (0.55 + Math.random() * 0.9), v = 60 + Math.random() * 140;
-    flow.sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, c }); }
-  flow.ripples.push({ life: 1, c }); flow.shieldHeat = 1;
-  if (flow.labels.length < 14) flow.labels.push({ x: x - 70 - Math.random() * 40, y: y - 24 + (Math.random() - .5) * 60, life: 1.2, c,
-    text: ((ev.categories || [])[0] || ev.action).toUpperCase() + (ev.score ? " · " + ev.score : "") });
+// One label per lane+slot: a newer request replaces the older label instead of overprinting it.
+function fxSet(key, f) { const i = flow.fx.findIndex(x => x.key === key); f.key = key; if (i >= 0) flow.fx[i] = f; else flow.fx.push(f); }
+function scheduleBatch(evs) {
+  if (!evs || !evs.length) return;
+  const base = Date.parse(evs[0].time), now = performance.now();
+  const lag = flow.queue.length ? Math.max(0, flow.queue[flow.queue.length - 1].at - now) : 0;
+  for (const ev of evs) flow.queue.push({ at: now + lag + Math.max(0, Date.parse(ev.time) - base), ev });
+  if (flow.queue.length > 600) flow.queue.splice(0, flow.queue.length - 600);
 }
-function drawNode(ctx, x, y, label, col) {
-  const g = ctx.createRadialGradient(x, y, 2, x, y, 40); g.addColorStop(0, col + "55"); g.addColorStop(1, col + "00");
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 40, 0, 7); ctx.fill();
-  ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, 16, 0, 7); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(x, y, 7, 16, 0, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x - 16, y); ctx.lineTo(x + 16, y); ctx.stroke();
-  ctx.font = "700 10.5px Inter, system-ui"; ctx.fillStyle = "#8a96b3"; ctx.textAlign = "center"; ctx.fillText(label, x, y + 56); ctx.textAlign = "left";
+const STAGES = [["PARSE", "extract inputs"], ["DECODE", "normalize"], ["DETECT", "analysers + rules"], ["SCORE", "anomaly score"]];
+function flowGeom(w, h) {
+  const top = 46, bottom = h - 34, laneH = (bottom - top) / LANES;
+  const xc = 128, gate = w * 0.74, app = w - 62;
+  const st = [0, 1, 2, 3].map(i => xc + 90 + i * (gate - xc - 220) / 3);
+  return { top, bottom, laneH, xc, st, gate, app, laneY: i => top + (i + 0.5) * laneH };
 }
-function drawServer(ctx, x, y) {
-  const p = flow.originPulse;
-  const g = ctx.createRadialGradient(x, y, 2, x, y, 46 + p * 10); g.addColorStop(0, `rgba(52,211,153,${.25 + p * .3})`); g.addColorStop(1, "rgba(52,211,153,0)");
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 50, 0, 7); ctx.fill();
-  for (let i = 0; i < 3; i++) {
-    const yy = y - 22 + i * 15;
-    ctx.fillStyle = "rgba(15,22,38,.95)"; ctx.strokeStyle = "rgba(52,211,153,.7)"; ctx.lineWidth = 1.3;
-    roundRect(ctx, x - 22, yy, 44, 12, 3); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = (Math.floor(flow.t * 4 + i) % 3 === 0 || p > .3) ? "#34d399" : "rgba(52,211,153,.3)";
-    ctx.beginPath(); ctx.arc(x + 14, yy + 6, 2, 0, 7); ctx.fill();
+function flowFrame(dt) {
+  const [ctx, w, h] = sizeCanvas($("flow")); const g = flowGeom(w, h); const now = performance.now();
+
+  while (flow.queue.length && flow.queue[0].at <= now) {
+    const { ev, at } = flow.queue.shift(); const lane = laneFor(ev.ip, at);
+    const outcome = ev.action === "allowed" ? "ok" : ev.action === "flagged" ? "flag" : "block";
+    flow.parts.push({ ev, lane, born: at, x: g.xc, outcome, col: "#e7ecf7", stage: -1 });
   }
-  ctx.font = "700 10.5px Inter, system-ui"; ctx.fillStyle = "#8a96b3"; ctx.textAlign = "center"; ctx.fillText("YOUR APP", x, y + 56); ctx.textAlign = "left";
-}
-function drawShield(ctx, x, y) {
-  const heat = flow.shieldHeat;
-  const g = ctx.createRadialGradient(x, y, 4, x, y, 90);
-  g.addColorStop(0, heat > .05 ? `rgba(251,59,92,${.30 * heat + .08})` : "rgba(34,211,238,.18)"); g.addColorStop(1, "rgba(34,211,238,0)");
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 90, 0, 7); ctx.fill();
-  // rotating rings
-  ctx.lineWidth = 2;
-  for (let k = 0; k < 2; k++) {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(flow.t * (k ? -.6 : .4));
-    ctx.strokeStyle = k ? "rgba(167,139,250,.55)" : "rgba(34,211,238,.6)"; ctx.setLineDash(k ? [3, 9] : [18, 10]);
-    ctx.beginPath(); ctx.arc(0, 0, k ? 54 : 46, 0, 7); ctx.stroke(); ctx.restore();
+  ctx.clearRect(0, 0, w, h);
+
+  // ---- static layout ----
+  ctx.textAlign = "center";
+  ctx.font = "700 10.5px Inter, system-ui"; ctx.fillStyle = "#8a96b3"; ctx.fillText("CLIENTS", g.xc - 50, 20);
+  ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("lane = client IP", g.xc - 50, 33);
+  STAGES.forEach(([name, sub], i) => {
+    const x = g.st[i];
+    ctx.fillStyle = "rgba(34,211,238,.045)"; ctx.strokeStyle = "rgba(34,211,238,.20)"; ctx.lineWidth = 1;
+    roundRect(ctx, x - 30, g.top - 10, 60, g.bottom - g.top + 20, 8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#22d3ee"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText(name, x, 20);
+    ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText(sub, x, 33);
+    ctx.fillStyle = "#8a96b3"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt(flow.staged[i]), x, h - 12);
+  });
+  const gg = ctx.createLinearGradient(0, g.top, 0, g.bottom);
+  gg.addColorStop(0, "rgba(251,59,92,.15)"); gg.addColorStop(.5, "rgba(251,59,92,.6)"); gg.addColorStop(1, "rgba(251,59,92,.15)");
+  ctx.fillStyle = gg; ctx.fillRect(g.gate - 2, g.top - 10, 4, g.bottom - g.top + 20);
+  ctx.fillStyle = "#fb3b5c"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText("DECISION", g.gate, 20);
+  ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("403 if score ≥ threshold", g.gate, 33);
+  ctx.fillStyle = "#fb3b5c"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt(flow.stopped) + " stopped", g.gate, h - 12);
+  ctx.fillStyle = "rgba(52,211,153,.06)"; ctx.strokeStyle = "rgba(52,211,153,.35)";
+  roundRect(ctx, g.app - 28, g.top - 10, 56, g.bottom - g.top + 20, 8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#34d399"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText("YOUR APP", g.app, 20);
+  ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("upstream", g.app, 33);
+  ctx.fillStyle = "#34d399"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt(flow.delivered) + " delivered", g.app, h - 12);
+  for (let i = 0; i < LANES; i++) {
+    const y = g.laneY(i);
+    ctx.strokeStyle = "rgba(120,150,220,.10)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(g.xc, y); ctx.lineTo(g.app - 28, y); ctx.stroke();
+    ctx.fillStyle = flow.laneIP[i] ? "#60a5fa" : "#2a3247"; ctx.beginPath(); ctx.arc(g.xc, y, 3.5, 0, 7); ctx.fill();
+    ctx.textAlign = "right"; ctx.font = "11px 'JetBrains Mono', Consolas, monospace"; ctx.fillStyle = "#8a96b3";
+    ctx.fillText(flow.laneIP[i] || "—", g.xc - 12, y + 4); ctx.textAlign = "center";
   }
-  ctx.setLineDash([]);
-  // shield body
-  ctx.save(); ctx.translate(x - 20, y - 24); ctx.scale(1.0, 1.0);
-  ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(40, 7); ctx.lineTo(40, 22); ctx.bezierCurveTo(40, 36, 31, 45, 20, 49); ctx.bezierCurveTo(9, 45, 0, 36, 0, 22); ctx.lineTo(0, 7); ctx.closePath();
-  const sg = ctx.createLinearGradient(0, 0, 40, 49); sg.addColorStop(0, "rgba(34,211,238,.35)"); sg.addColorStop(1, "rgba(167,139,250,.25)");
-  ctx.fillStyle = sg; ctx.fill(); ctx.strokeStyle = heat > .05 ? "#fb3b5c" : "#22d3ee"; ctx.lineWidth = 2;
-  ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 16 + heat * 20; ctx.stroke(); ctx.shadowBlur = 0;
-  ctx.strokeStyle = "#34d399"; ctx.lineWidth = 2.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(12, 24); ctx.lineTo(18, 30); ctx.lineTo(29, 17); ctx.stroke();
-  ctx.restore();
-  ctx.font = "800 10.5px Inter, system-ui"; ctx.fillStyle = "#22d3ee"; ctx.textAlign = "center"; ctx.fillText("SENTINEL", x, y + 76); ctx.textAlign = "left";
+
+  // ---- requests: position = time since the request arrived x fixed speed (2 s client -> decision) ----
+  const speed = (g.gate - g.xc) / 2.0;
+  for (let i = flow.parts.length - 1; i >= 0; i--) {
+    const p = flow.parts[i], y = g.laneY(p.lane);
+    p.x = g.xc + speed * Math.max(0, now - p.born) / 1000;
+    while (p.stage < 3 && p.x >= g.st[p.stage + 1]) {
+      p.stage++; flow.staged[p.stage]++;
+      if (p.stage === 2 && (p.ev.categories || []).length) {
+        p.col = catColor(p.ev.categories[0]);
+        fxSet(p.lane + ":det", { kind: "tag", x: g.st[2] + 8, y: y - 9, text: p.ev.categories.join(" + "), c: p.col, life: 1.4 });
+      }
+      if (p.stage === 3 && p.ev.score)
+        fxSet(p.lane + ":score", { kind: "tag", x: g.st[3] + 8, y: y - 9, text: "score " + p.ev.score, c: p.outcome === "block" ? "#fb3b5c" : "#fbbf24", life: 1.4 });
+    }
+    if (p.outcome === "block" && p.x >= g.gate - 6) {
+      flow.stopped++;
+      fxSet(p.lane + ":gring", { kind: "ring", x: g.gate, y, c: "#fb3b5c", life: 1 });
+      const why = ((p.ev.categories || [])[0] || p.ev.action).toUpperCase();
+      fxSet(p.lane + ":gate", { kind: "tag", x: g.gate + 10, y: y + 4, text: "403 " + why + "  " + p.ev.ip, c: "#fb3b5c", life: 1.6 });
+      flow.parts.splice(i, 1); continue;
+    }
+    if (p.x >= g.gate && !p.passed) { p.passed = true; p.col = p.outcome === "flag" ? "#fbbf24" : "#34d399"; }
+    if (p.x >= g.app - 28) {
+      flow.delivered++; fxSet(p.lane + ":app", { kind: "ring", x: g.app - 28, y, c: "#34d399", life: 1 });
+      flow.parts.splice(i, 1); continue;
+    }
+    const grad = ctx.createLinearGradient(p.x - 22, 0, p.x, 0); grad.addColorStop(0, p.col + "00"); grad.addColorStop(1, p.col + "aa");
+    ctx.strokeStyle = grad; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p.x - 22, y); ctx.lineTo(p.x, y); ctx.stroke();
+    ctx.fillStyle = p.col; ctx.shadowColor = p.col; ctx.shadowBlur = 10; ctx.beginPath(); ctx.arc(p.x, y, 3.4, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+  }
+
+  // ---- effects: fixed positions, fade only ----
+  ctx.textAlign = "left"; ctx.font = "700 10.5px Inter, system-ui";
+  for (let i = flow.fx.length - 1; i >= 0; i--) {
+    const f = flow.fx[i]; f.life -= dt; if (f.life <= 0) { flow.fx.splice(i, 1); continue; }
+    ctx.globalAlpha = Math.min(1, f.life);
+    if (f.kind === "ring") { ctx.strokeStyle = f.c; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(f.x, f.y, 5 + (1 - f.life) * 12, 0, 7); ctx.stroke(); }
+    else { ctx.fillStyle = f.c; ctx.fillText(f.text, f.x, f.y); }
+  }
+  ctx.globalAlpha = 1;
+  if (flow.fx.length > 300) flow.fx.splice(0, flow.fx.length - 300);
 }
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 
@@ -463,8 +433,6 @@ function donutFrame(dt) {
     ctx.beginPath(); ctx.arc(cx, cy, r, a + 0.02, a + Math.max(0.02, da - 0.02)); ctx.stroke(); a += da;
   }
   ctx.shadowBlur = 0;
-  ctx.save(); ctx.translate(cx, cy); ctx.rotate(performance.now() / 2600);
-  ctx.strokeStyle = "rgba(34,211,238,.35)"; ctx.lineWidth = 1; ctx.setLineDash([2, 6]); ctx.beginPath(); ctx.arc(0, 0, r - 18, 0, 7); ctx.stroke(); ctx.restore();
   ctx.fillStyle = "#e7ecf7"; ctx.textAlign = "center"; ctx.font = "800 26px Inter, system-ui"; ctx.fillText(fmt(total), cx, cy + 6);
   ctx.font = "600 10.5px Inter, system-ui"; ctx.fillStyle = "#8a96b3"; ctx.fillText("THREATS", cx, cy + 24); ctx.textAlign = "left";
 }
@@ -507,8 +475,7 @@ function render(d) {
   hist.ips.push(s.unique_attackers || 0); if (hist.ips.length > 40) hist.ips.shift(); spark("s-ips", hist.ips, "#60a5fa");
 
   // flow
-  if (!first) (s.events || []).forEach(spawn);
-  else { flow.allowed = allowed; flow.blocked = blockedAll; }
+  if (!first) scheduleBatch(s.events);
 
   // donut + legend
   const cats = Object.entries(s.categories || {}).sort((a, b) => b[1] - a[1]);
