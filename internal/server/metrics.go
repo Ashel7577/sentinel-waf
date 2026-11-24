@@ -19,6 +19,7 @@ const (
 	streamLen   = 400 // all recent requests (for the live flow view)
 	threatsLen  = 150 // recent requests with findings
 	maxIPsTrack = 2000
+	recentLen   = 4096
 )
 
 // EventFinding is one finding attached to a dashboard event.
@@ -62,6 +63,10 @@ type Metrics struct {
 	hist     [11]atomic.Int64 // len(bucketsMicros)+1
 	sumMicro atomic.Int64
 
+	durMu sync.Mutex
+	durs  [recentLen]int64 // last inspection durations, ns (exact percentiles)
+	durN  int
+
 	mu       sync.Mutex
 	seq      uint64
 	byCat    map[string]int64
@@ -86,6 +91,10 @@ func (m *Metrics) observe(res waf.Result, d time.Duration) {
 	us := float64(d.Nanoseconds()) / 1e3
 	m.sumMicro.Add(int64(us))
 	m.hist[sort.SearchFloat64s(bucketsMicros, us)].Add(1)
+	m.durMu.Lock()
+	m.durs[m.durN%recentLen] = d.Nanoseconds()
+	m.durN++
+	m.durMu.Unlock()
 	if len(res.Findings) == 0 {
 		return
 	}
@@ -166,6 +175,37 @@ func (m *Metrics) quantile(q float64) float64 {
 	return bucketsMicros[len(bucketsMicros)-1]
 }
 
+// LatencySummary holds exact percentiles over the most recent requests.
+type LatencySummary struct {
+	Samples int     `json:"samples"`
+	MeanUS  float64 `json:"mean_us"`
+	P50US   float64 `json:"p50_us"`
+	P95US   float64 `json:"p95_us"`
+	P99US   float64 `json:"p99_us"`
+	MaxUS   float64 `json:"max_us"`
+}
+
+func (m *Metrics) recentLatency() LatencySummary {
+	m.durMu.Lock()
+	n := m.durN
+	if n > recentLen {
+		n = recentLen
+	}
+	d := make([]int64, n)
+	copy(d, m.durs[:n])
+	m.durMu.Unlock()
+	if n == 0 {
+		return LatencySummary{}
+	}
+	sort.Slice(d, func(i, j int) bool { return d[i] < d[j] })
+	var sum int64
+	for _, v := range d {
+		sum += v
+	}
+	q := func(f float64) float64 { return float64(d[int(f*float64(n-1))]) / 1e3 }
+	return LatencySummary{Samples: n, MeanUS: float64(sum) / float64(n) / 1e3, P50US: q(.50), P95US: q(.95), P99US: q(.99), MaxUS: float64(d[n-1]) / 1e3}
+}
+
 // Named counts for sorted lists.
 type Named struct {
 	Key   string `json:"key"`
@@ -193,6 +233,7 @@ type Stats struct {
 	AvgInspectUS   float64          `json:"avg_inspect_us"`
 	P50InspectUS   float64          `json:"p50_inspect_us_le"`
 	P99InspectUS   float64          `json:"p99_inspect_us_le"`
+	Recent         LatencySummary   `json:"recent_latency"`
 	Categories     map[string]int64 `json:"categories"`
 	TopRules       []Named          `json:"top_rules"`
 	TopIPs         []Named          `json:"top_ips"`
@@ -236,6 +277,7 @@ func (m *Metrics) snapshot(since uint64, seriesSecs int) Stats {
 		P99InspectUS:   m.quantile(0.99),
 		Categories:     map[string]int64{},
 		HistBuckets:    bucketsMicros,
+		Recent:         m.recentLatency(),
 	}
 	if s.Requests > 0 {
 		s.AvgInspectUS = float64(m.sumMicro.Load()) / float64(s.Requests)

@@ -137,7 +137,7 @@ Open `http://127.0.0.1:9090` while Sentinel runs. Everything updates every secon
 | Panel | What it shows |
 |---|---|
 | **Header** | Protecting or monitoring status, upstream, threshold, paranoia level, rule count, uptime |
-| **KPI cards** | Requests per second, blocked, allowed, flagged (scored but under the threshold), average inspection time and p99, unique attacker IPs. Each card has a 40-second sparkline. |
+| **KPI cards** | Requests per second (5-second average), blocked, delivered (everything not blocked), flagged (scored but under the threshold, still delivered), median inspection time with p99, and unique attacker IPs. Each card has a 40-second sparkline. Latency is measured with a high-resolution clock, and its percentiles are exact over the last 4,096 requests, not estimated from buckets. |
 | **Live traffic flow** | **One dot is one real request**, replayed in its real order and timing from the server timestamps, all at the same speed. Each active client IP gets its own lane. A dot moves through the actual pipeline: **PARSE, DECODE, DETECT, SCORE, DECISION, YOUR APP**. It stays white until DETECT, which is where Sentinel learns what it is; there it takes its attack colour and label. SCORE shows its real anomaly score. At DECISION a blocked request stops with `403 <class> <ip>`, and an allowed one turns green and continues to the app. Each stage column counts the requests that have passed it. Nothing in this view is random or decorative. |
 | **Attack classes** | Animated donut chart of detections by category |
 | **Throughput** | Allowed, flagged and blocked requests per second over the last 2 minutes. Hover for exact numbers. |

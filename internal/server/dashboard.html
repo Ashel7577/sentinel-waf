@@ -158,11 +158,11 @@ footer a{color:var(--dim)}
 
 <main>
   <section class="kpis">
-    <div class="kpi" style="--accent:var(--cyan)"><div class="k">Requests / sec</div><div class="v num" id="k-rps">0</div><div class="sub" id="k-req">0 total</div><canvas id="s-rps"></canvas></div>
+    <div class="kpi" style="--accent:var(--cyan)"><div class="k">Requests / sec <span style="text-transform:none;letter-spacing:0">5 s avg</span></div><div class="v num" id="k-rps">0</div><div class="sub" id="k-req">0 total</div><canvas id="s-rps"></canvas></div>
     <div class="kpi" id="kpi-blk" style="--accent:var(--red)"><div class="k">Blocked</div><div class="v num" id="k-blk">0</div><div class="sub" id="k-blkr">0% of traffic</div><canvas id="s-blk"></canvas></div>
-    <div class="kpi" style="--accent:var(--green)"><div class="k">Allowed</div><div class="v num" id="k-ok">0</div><div class="sub" id="k-okr">clean traffic</div><canvas id="s-ok"></canvas></div>
+    <div class="kpi" style="--accent:var(--green)"><div class="k">Delivered</div><div class="v num" id="k-ok">0</div><div class="sub" id="k-okr">clean traffic</div><canvas id="s-ok"></canvas></div>
     <div class="kpi" style="--accent:var(--amber)"><div class="k">Flagged</div><div class="v num" id="k-flg">0</div><div class="sub">below threshold / monitor</div><canvas id="s-flg"></canvas></div>
-    <div class="kpi" style="--accent:var(--violet)"><div class="k">Avg inspection</div><div class="v num" id="k-lat">0<small>µs</small></div><div class="sub" id="k-p99">p99 ≤ –</div><canvas id="s-lat"></canvas></div>
+    <div class="kpi" style="--accent:var(--violet)"><div class="k">Median inspection</div><div class="v num" id="k-lat">0<small>µs</small></div><div class="sub" id="k-p99">p99 ≤ –</div><canvas id="s-lat"></canvas></div>
     <div class="kpi" style="--accent:var(--blue)"><div class="k">Unique attackers</div><div class="v num" id="k-ips">0</div><div class="sub" id="k-cats">0 attack classes</div><canvas id="s-ips"></canvas></div>
   </section>
 
@@ -185,7 +185,8 @@ footer a{color:var(--dim)}
     <div class="panel span4">
       <h2>Inspection latency <span class="right">per request</span></h2>
       <div class="hist" id="hist"></div>
-      <div class="lat-stats"><div>avg <b id="l-avg" class="num">–</b></div><div>p50 ≤ <b id="l-p50" class="num">–</b></div><div>p99 ≤ <b id="l-p99" class="num">–</b></div></div>
+      <div class="lat-stats"><div>mean <b id="l-avg" class="num">–</b></div><div>p50 <b id="l-p50" class="num">–</b></div><div>p99 <b id="l-p99" class="num">–</b></div><div>max <b id="l-max" class="num">–</b></div></div>
+      <div style="color:var(--faint);font-size:11.5px;margin-top:6px">exact percentiles over the last <span id="l-n">–</span> requests · parse + inspect, measured with a high-resolution clock</div>
     </div>
 
     <div class="panel span7">
@@ -228,6 +229,7 @@ const tweens = {};
 function setNum(id, target, f = fmt, suffix = "") {
   const t = tweens[id] || (tweens[id] = {cur: 0, target: 0});
   t.target = target; t.f = f; t.suffix = suffix;
+  if (first) { t.cur = target; } // show true values immediately; only later changes animate
 }
 function stepNums(dt) {
   for (const id in tweens) {
@@ -310,19 +312,19 @@ function flowFrame(dt) {
     roundRect(ctx, x - 30, g.top - 10, 60, g.bottom - g.top + 20, 8); ctx.fill(); ctx.stroke();
     ctx.fillStyle = "#22d3ee"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText(name, x, 20);
     ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText(sub, x, 33);
-    ctx.fillStyle = "#8a96b3"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt(flow.staged[i]), x, h - 12);
+    ctx.fillStyle = "#8a96b3"; ctx.font = "600 11px Inter, system-ui"; const T = flow.tot || {}; ctx.fillText(i === 2 ? fmt(T.withFindings || 0) + " hit" : fmt(T.inspected || 0), x, h - 12);
   });
   const gg = ctx.createLinearGradient(0, g.top, 0, g.bottom);
   gg.addColorStop(0, "rgba(251,59,92,.15)"); gg.addColorStop(.5, "rgba(251,59,92,.6)"); gg.addColorStop(1, "rgba(251,59,92,.15)");
   ctx.fillStyle = gg; ctx.fillRect(g.gate - 2, g.top - 10, 4, g.bottom - g.top + 20);
   ctx.fillStyle = "#fb3b5c"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText("DECISION", g.gate, 20);
   ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("403 if score ≥ threshold", g.gate, 33);
-  ctx.fillStyle = "#fb3b5c"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt(flow.stopped) + " stopped", g.gate, h - 12);
+  ctx.fillStyle = "#fb3b5c"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt((flow.tot || {}).blocked || 0) + " blocked", g.gate, h - 12);
   ctx.fillStyle = "rgba(52,211,153,.06)"; ctx.strokeStyle = "rgba(52,211,153,.35)";
   roundRect(ctx, g.app - 28, g.top - 10, 56, g.bottom - g.top + 20, 8); ctx.fill(); ctx.stroke();
   ctx.fillStyle = "#34d399"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText("YOUR APP", g.app, 20);
   ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("upstream", g.app, 33);
-  ctx.fillStyle = "#34d399"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt(flow.delivered) + " delivered", g.app, h - 12);
+  ctx.fillStyle = "#34d399"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt((flow.tot || {}).allowed || 0) + " delivered", g.app, h - 12);
   for (let i = 0; i < LANES; i++) {
     const y = g.laneY(i);
     ctx.strokeStyle = "rgba(120,150,220,.10)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(g.xc, y); ctx.lineTo(g.app - 28, y); ctx.stroke();
@@ -452,15 +454,16 @@ function render(d) {
   const up = s.uptime_seconds; $("uptime").textContent = `${Math.floor(up / 3600)}h ${String(Math.floor(up % 3600 / 60)).padStart(2, "0")}m ${String(up % 60).padStart(2, "0")}s`;
 
   const ser = s.series || []; tp.series = ser;
-  const last = ser.length > 1 ? ser[ser.length - 2] : { a: 0, b: 0, f: 0 };
-  const rps = last.a + last.b + last.f;
-  setNum("k-rps", rps); $("k-req").textContent = fmt(s.requests) + " total";
+  const full = ser.slice(-6, -1); // last 5 complete seconds
+  const rps = full.length ? full.reduce((t, p) => t + p.a + p.b + p.f, 0) / full.length : 0;
+  setNum("k-rps", rps, v => v.toFixed(1)); $("k-req").textContent = fmt(s.requests) + " total";
   const blockedAll = s.blocked + s.rate_limited + s.too_large;
   setNum("k-blk", blockedAll); $("k-blkr").textContent = (s.requests ? (100 * blockedAll / s.requests).toFixed(1) : "0") + "% of traffic";
-  const allowed = Math.max(0, s.requests - s.blocked - s.flagged);
-  setNum("k-ok", allowed); $("k-okr").textContent = (s.requests ? (100 * allowed / s.requests).toFixed(1) : "0") + "% clean";
+  const allowed = Math.max(0, s.requests - blockedAll); // delivered to the app (includes flagged)
+  setNum("k-ok", allowed); $("k-okr").textContent = (s.requests ? (100 * allowed / s.requests).toFixed(1) : "0") + "% delivered";
   setNum("k-flg", s.flagged);
-  setNum("k-lat", s.avg_inspect_us, v => Math.round(v), "<small>µs</small>"); $("k-p99").textContent = "p99 ≤ " + fmtUs(s.p99_inspect_us_le);
+  const rl = s.recent_latency || {};
+  setNum("k-lat", rl.p50_us || 0, v => Math.round(v), "<small>µs</small>"); $("k-p99").textContent = "p99 " + fmtUs(rl.p99_us || 0) + " · last " + fmt(rl.samples || 0);
   const ncat = Object.keys(s.categories || {}).length;
   setNum("k-ips", s.unique_attackers || 0); $("k-cats").textContent = ncat + " attack classes seen";
   if (blockedAll > lastBlocked && !first) { const k = $("kpi-blk"); k.classList.remove("flash"); void k.offsetWidth; k.classList.add("flash"); }
@@ -471,11 +474,12 @@ function render(d) {
   spark("s-blk", tail.map(p => p.b), "#fb3b5c");
   spark("s-ok", tail.map(p => p.a), "#34d399");
   spark("s-flg", tail.map(p => p.f), "#fbbf24");
-  hist.lat.push(s.avg_inspect_us); if (hist.lat.length > 40) hist.lat.shift(); spark("s-lat", hist.lat, "#a78bfa");
+  hist.lat.push(rl.p50_us || 0); if (hist.lat.length > 40) hist.lat.shift(); spark("s-lat", hist.lat, "#a78bfa");
   hist.ips.push(s.unique_attackers || 0); if (hist.ips.length > 40) hist.ips.shift(); spark("s-ips", hist.ips, "#60a5fa");
 
   // flow
   if (!first) scheduleBatch(s.events);
+  flow.tot = { inspected: s.requests, withFindings: s.blocked + s.flagged, blocked: blockedAll, allowed: Math.max(0, s.requests - blockedAll) };
 
   // donut + legend
   const cats = Object.entries(s.categories || {}).sort((a, b) => b[1] - a[1]);
@@ -494,7 +498,7 @@ function render(d) {
   const H = $("hist");
   if (H.children.length !== hb.length) H.innerHTML = hb.map((_, i) => `<div class="b"><div class="cnt num"></div><div class="bar"></div><div class="lbl">${labels[i]}</div></div>`).join("");
   hb.forEach((v, i) => { const b = H.children[i]; b.querySelector(".bar").style.height = Math.max(2, 128 * v / hmax) + "px"; b.querySelector(".cnt").textContent = v ? fmt(v) : ""; });
-  $("l-avg").textContent = fmtUs(s.avg_inspect_us); $("l-p50").textContent = fmtUs(s.p50_inspect_us_le); $("l-p99").textContent = fmtUs(s.p99_inspect_us_le);
+  $("l-avg").textContent = fmtUs(rl.mean_us || 0); $("l-p50").textContent = fmtUs(rl.p50_us || 0); $("l-p99").textContent = fmtUs(rl.p99_us || 0); $("l-max").textContent = fmtUs(rl.max_us || 0); $("l-n").textContent = fmt(rl.samples || 0);
 
   // threat feed
   const feed = $("feed"); const th = s.threats || [];

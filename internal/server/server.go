@@ -107,9 +107,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.TransferEncoding = nil
 	}
 
-	start := time.Now()
+	start := nanotime()
 	res := s.engine.Inspect(waf.Extract(r, body))
-	took := time.Since(start)
+	took := time.Duration(nanotime() - start)
 	s.Metrics.observe(res, took)
 
 	block := res.Blocked && !s.opts.Monitor
