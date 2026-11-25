@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ashel7577/sentinel-waf/internal/evidence"
 	"github.com/Ashel7577/sentinel-waf/internal/server"
 	"github.com/Ashel7577/sentinel-waf/internal/waf"
 )
@@ -33,6 +34,7 @@ func main() {
 	trustXFF := flag.Bool("trust-xff", false, "use X-Forwarded-For for client IP (only behind a trusted proxy)")
 	logPath := flag.String("log", "", "JSON log file (default stdout)")
 	logAll := flag.Bool("log-all", false, "log every request, not only ones with findings")
+	evPath := flag.String("evidence", "", "tamper-evident evidence file (JSONL hash chain) for blocked/flagged requests; enables /report")
 	flag.Parse()
 
 	up, err := url.Parse(*upstream)
@@ -60,9 +62,19 @@ func main() {
 		go watchRules(*rulesPath, engine, logger)
 	}
 
+	var vault *evidence.Vault
+	if *evPath != "" {
+		v, err := evidence.Open(*evPath)
+		if err != nil {
+			fatal("evidence: %v", err)
+		}
+		defer v.Close()
+		vault = v
+	}
+
 	srv := server.New(server.Options{
 		Upstream: up, Monitor: *monitor, MaxBody: *maxBody, RateLimit: *rate, Burst: *burst,
-		TrustXFF: *trustXFF, LogAll: *logAll, Logger: logger,
+		TrustXFF: *trustXFF, LogAll: *logAll, Logger: logger, Evidence: vault, EvidencePath: *evPath,
 	}, engine)
 
 	proxy := &http.Server{

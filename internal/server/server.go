@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Ashel7577/sentinel-waf/internal/analyst"
+	"github.com/Ashel7577/sentinel-waf/internal/evidence"
 	"github.com/Ashel7577/sentinel-waf/internal/waf"
 )
 
@@ -31,6 +33,11 @@ type Options struct {
 	TrustXFF  bool // take client IP from X-Forwarded-For (only behind a trusted LB)
 	LogAll    bool
 	Logger    *slog.Logger
+	// Evidence, when set, receives a tamper-evident record of every blocked
+	// or flagged request (see internal/evidence). EvidencePath is the file it
+	// writes, read back by the /report and /verify admin endpoints.
+	Evidence     *evidence.Vault
+	EvidencePath string
 }
 
 // Server is an http.Handler.
@@ -147,11 +154,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Metrics.record(ev)
 
+	evHash := ""
+	if s.opts.Evidence != nil && action != "allowed" {
+		fs := make([]evidence.Finding, 0, len(res.Findings))
+		for _, f := range res.Findings {
+			fs = append(fs, evidence.Finding{RuleID: f.RuleID, Category: f.Category, Message: f.Message, Score: f.Score,
+				Location: f.Location, Name: f.Name, Sample: f.Sample})
+		}
+		if rec, err := s.opts.Evidence.Capture(r, body, id, ip, action, res.Score, s.engine.Config().Threshold, fs, waf.Version); err != nil {
+			s.log.Error("evidence capture failed", "err", err.Error(), "request_id", id)
+		} else {
+			evHash = rec.Hash
+		}
+	}
+
 	if block {
-		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error":      "request blocked by sentinel-waf",
-			"request_id": id,
-		})
+		out := map[string]any{"error": "request blocked by sentinel-waf", "request_id": id}
+		if evHash != "" {
+			out["evidence"] = evHash[:16]
+		}
+		writeJSON(w, http.StatusForbidden, out)
 		return
 	}
 
@@ -223,6 +245,63 @@ func (s *Server) AdminHandler() http.Handler {
 		s.Metrics.writePrometheus(w)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+
+	// Built-in analyst: incident report and evidence integrity, generated live
+	// from the evidence file.
+	load := func(w http.ResponseWriter) ([]*evidence.Record, evidence.Report, bool) {
+		if s.opts.EvidencePath == "" {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "evidence capture is off (start with -evidence file.jsonl)"})
+			return nil, evidence.Report{}, false
+		}
+		recs, err := evidence.ReadFile(s.opts.EvidencePath)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return nil, evidence.Report{}, false
+		}
+		return recs, evidence.Verify(recs), true
+	}
+	mux.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
+		if _, rep, ok := load(w); ok {
+			writeJSON(w, http.StatusOK, rep)
+		}
+	})
+	mux.HandleFunc("/evidence", func(w http.ResponseWriter, r *http.Request) {
+		recs, _, ok := load(w)
+		if !ok {
+			return
+		}
+		type row struct {
+			Seq     int64     `json:"seq"`
+			Time    time.Time `json:"time"`
+			ID      string    `json:"request_id"`
+			Summary string    `json:"summary"`
+			Hash    string    `json:"hash"`
+		}
+		var out []row
+		for _, in := range analyst.Analyse(recs, nil) {
+			out = append(out, row{in.Rec.Seq, in.Rec.Time, in.Rec.RequestID, in.Summary(), in.Rec.Hash})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	report := func(w http.ResponseWriter, r *http.Request, asHTML bool) {
+		recs, rep, ok := load(w)
+		if !ok {
+			return
+		}
+		if n, _ := strconv.Atoi(r.URL.Query().Get("last")); n > 0 && n < len(recs) {
+			recs = recs[len(recs)-n:]
+		}
+		md := analyst.Markdown(analyst.Analyse(recs, nil), rep, "", "")
+		if asHTML {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			io.WriteString(w, analyst.HTML(md))
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		io.WriteString(w, md)
+	}
+	mux.HandleFunc("/report", func(w http.ResponseWriter, r *http.Request) { report(w, r, true) })
+	mux.HandleFunc("/report.md", func(w http.ResponseWriter, r *http.Request) { report(w, r, false) })
 	return mux
 }
 

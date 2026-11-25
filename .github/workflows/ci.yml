@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -36,9 +39,56 @@ jobs:
             misses-*.tsv
             bench.txt
 
-  compare:
-    # Head-to-head with OWASP Coraza + Core Rule Set on identical requests.
+  fuzz:
+    # Native Go fuzzing of every parser an attacker reaches first.
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { pkg: ./internal/parsediff, fn: FuzzBody }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: fuzz ${{ matrix.target.fn }} (3 min)
+        run: go test ${{ matrix.target.pkg }} -run '^$' -fuzz '^${{ matrix.target.fn }}$' -fuzztime 3m
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-crashers-${{ matrix.target.fn }}
+          path: "**/testdata/fuzz/**"
+
+  attacklab:
+    # Live campaign: real Go app, Coraza + CRS and Sentinel side by side.
+    # Produces the verified evidence pack and the analyst's incident report.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: run campaign
+        working-directory: bench/compare
+        run: go run ./attacklab -out ../../lab-out
+      - name: verify evidence chain independently
+        run: go run ./cmd/sentinel-report verify -evidence lab-out/evidence.jsonl
+      - name: summary
+        run: cat lab-out/results.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: attacklab-evidence-pack
+          path: lab-out/
+
+  compare:
+    # Head-to-head with OWASP Coraza + Core Rule Set on identical requests,
+    # at every paranoia level (a fair baseline compares against CRS PL1-PL4).
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        paranoia: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -48,15 +98,15 @@ jobs:
         run: bash scripts/fetch-external.sh
       - name: compare (built-in corpus)
         working-directory: bench/compare
-        run: go run . -corpus ../../eval/corpus -out ../../compare-builtin.md
+        run: go run . -corpus ../../eval/corpus -paranoia ${{ matrix.paranoia }} -out ../../compare-builtin-pl${{ matrix.paranoia }}.md
       - name: compare (third-party corpus)
         working-directory: bench/compare
-        run: go run . -corpus ../../eval/external -max 400 -out ../../compare-external.md
+        run: go run . -corpus ../../eval/external -max 400 -paranoia ${{ matrix.paranoia }} -out ../../compare-external-pl${{ matrix.paranoia }}.md
       - name: summary
-        run: cat compare-builtin.md compare-external.md >> "$GITHUB_STEP_SUMMARY"
+        run: cat compare-*-pl${{ matrix.paranoia }}.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: compare-results
+          name: compare-results-pl${{ matrix.paranoia }}
           path: compare-*.md
 
   gotestwaf:

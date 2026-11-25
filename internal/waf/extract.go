@@ -2,15 +2,12 @@ package waf
 
 import (
 	"bytes"
-	"encoding/json"
 	"encoding/xml"
-	"io"
 	"mime"
-	"mime/multipart"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
+
+	"github.com/Ashel7577/sentinel-waf/internal/parsediff"
 )
 
 // Input is one attacker-controllable value pulled out of a request.
@@ -18,23 +15,25 @@ type Input struct {
 	Location string // see the loc* constants
 	Name     string // parameter / header / JSON path
 	Value    string
+	score    int // parser-differential inputs only: the ambiguity score
 }
 
 // Input locations. They decide which analysers run on a value.
 const (
-	locPath     = "path"         // whole path: traversal + rules
-	locSegment  = "path-segment" // one decoded path segment: full analysis
-	locQuery    = "query"
-	locBody     = "body"
-	locJSON     = "json"
-	locXML      = "xml"
-	locCookie   = "cookie"
-	locHeader   = "header"     // non-standard header: full analysis
-	locStdHdr   = "header-std" // well-known header: rules only
-	locKey      = "key"        // parameter / JSON key names
-	locFilename = "filename"   // multipart upload filename (raw, not basename'd)
-	locFile     = "file"       // uploaded file content: rules only
-	locBodyRaw  = "body-raw"   // entire raw body: rules only (XXE, etc.)
+	locPath      = "path"         // whole path: traversal + rules
+	locSegment   = "path-segment" // one decoded path segment: full analysis
+	locQuery     = "query"
+	locBody      = "body"
+	locJSON      = "json"
+	locXML       = "xml"
+	locCookie    = "cookie"
+	locHeader    = "header"     // non-standard header: full analysis
+	locStdHdr    = "header-std" // well-known header: rules only
+	locKey       = "key"        // parameter / JSON key names
+	locFilename  = "filename"   // multipart upload filename (raw, not basename'd)
+	locFile      = "file"       // uploaded file content: rules only
+	locBodyRaw   = "body-raw"   // entire raw body: rules only (XXE, etc.)
+	locParseDiff = "parse-diff" // parsers disagree on this request (see internal/parsediff)
 )
 
 const (
@@ -77,7 +76,7 @@ func Extract(r *http.Request, body []byte) []Input {
 	}
 
 	if raw := r.URL.RawQuery; raw != "" {
-		addForm(c, raw, "query", locQuery)
+		addReadings(c, parsediff.Query(raw), locQuery)
 	}
 
 	for name, vs := range r.Header {
@@ -98,45 +97,43 @@ func Extract(r *http.Request, body []byte) []Input {
 	}
 
 	if len(body) > 0 {
-		mt, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		trimmed := bytes.TrimSpace(body)
-		switch {
-		case mt == "application/x-www-form-urlencoded":
-			addForm(c, string(body), "form", locBody)
-		case mt == "application/json" || strings.HasSuffix(mt, "+json") ||
-			(mt == "" && len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')):
-			if !walkJSON(c, body) {
-				c.add(locBody, "", string(body))
-			}
-		case strings.HasPrefix(mt, "multipart/"):
-			if !walkMultipart(c, body, params["boundary"]) {
-				c.add(locBody, "", string(body))
-			}
-		case strings.Contains(mt, "xml"):
+		mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if strings.Contains(mt, "xml") {
 			c.add(locBodyRaw, "", string(body)) // DOCTYPE/ENTITY live outside elements
 			if !walkXML(c, body) {
 				c.add(locBody, "", string(body))
 			}
-		default:
-			c.add(locBody, "", string(body))
 		}
+		// Every reading of the body (Go stdlib, strict, lenient framework
+		// behaviours) is inspected, and disagreements between them are scored.
+		addReadings(c, parsediff.Body(r.Header, body), locBody)
 	}
 	return c.ins
 }
 
-// addForm parses a urlencoded string. Go's parser drops pairs it considers
-// malformed (bad escapes, ';'), which an attacker could abuse to hide a
-// payload, so on any parse error the raw string is inspected as well.
-func addForm(c *collector, raw, keySrc, loc string) {
-	vals, err := url.ParseQuery(raw)
-	for k, vs := range vals {
-		c.add(locKey, keySrc, k)
-		for _, v := range vs {
-			c.add(loc, k, v)
+// addReadings turns a parsediff result into inputs.
+func addReadings(c *collector, pr parsediff.Result, formLoc string) {
+	for _, f := range pr.Fields {
+		switch {
+		case f.Key:
+			c.add(locKey, f.Name, f.Value)
+		case f.Kind == parsediff.KindJSON:
+			c.add(locJSON, f.Name, f.Value)
+		case f.Kind == parsediff.KindMultipart && f.HasFilename:
+			c.add(locFilename, f.Name, f.Filename)
+			c.add(locFile, f.Name, f.Value)
+		case f.Kind == parsediff.KindMultipart && strings.HasPrefix(f.Name, "part-header:"):
+			c.add(locHeader, strings.TrimPrefix(f.Name, "part-header:"), f.Value)
+		case f.Kind == parsediff.KindQuery:
+			c.add(locQuery, f.Name, f.Value)
+		default:
+			c.add(formLoc, f.Name, f.Value)
 		}
 	}
-	if err != nil {
-		c.add(loc, "", raw)
+	for _, a := range pr.Ambiguities {
+		if len(c.ins) < maxInputs {
+			c.ins = append(c.ins, Input{Location: locParseDiff, Name: a.Code, Value: a.Detail, score: a.Score})
+		}
 	}
 }
 
@@ -156,67 +153,6 @@ func addCookies(c *collector, header string) {
 		}
 		c.add(locKey, "cookie", name)
 		c.add(locCookie, name, val)
-	}
-}
-
-func walkJSON(c *collector, data []byte) bool {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return false
-	}
-	var walk func(path string, v any, depth int)
-	walk = func(path string, v any, depth int) {
-		if depth > maxDepth {
-			return
-		}
-		switch t := v.(type) {
-		case map[string]any:
-			for k, x := range t {
-				c.add(locKey, "json", k)
-				walk(path+"."+k, x, depth+1)
-			}
-		case []any:
-			for i, x := range t {
-				walk(path+"["+strconv.Itoa(i)+"]", x, depth+1)
-			}
-		case string:
-			c.add(locJSON, path, t)
-		}
-	}
-	walk("$", v, 0)
-	return true
-}
-
-func walkMultipart(c *collector, body []byte, boundary string) bool {
-	if boundary == "" {
-		return false
-	}
-	mr := multipart.NewReader(bytes.NewReader(body), boundary)
-	n := 0
-	for {
-		part, err := mr.NextPart()
-		if err != nil {
-			return n > 0 || err == io.EOF
-		}
-		n++
-		// Part.FileName() applies filepath.Base and would hide "../../shell.php".
-		_, dp, _ := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
-		name := dp["name"]
-		data, _ := io.ReadAll(io.LimitReader(part, maxPart))
-		c.add(locKey, "multipart", name)
-		if fn, ok := dp["filename"]; ok {
-			c.add(locFilename, name, fn)
-			c.add(locFile, name, string(data))
-		} else {
-			c.add(locBody, name, string(data))
-		}
-		for hk, hv := range part.Header {
-			if !strings.EqualFold(hk, "Content-Disposition") && !strings.EqualFold(hk, "Content-Type") {
-				c.add(locHeader, strings.ToLower(hk), strings.Join(hv, ","))
-			}
-		}
 	}
 }
 

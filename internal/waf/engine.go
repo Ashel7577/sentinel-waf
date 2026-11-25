@@ -9,6 +9,9 @@ import (
 	"github.com/Ashel7577/sentinel-waf/internal/normalize"
 )
 
+// Version is the engine version recorded in evidence.
+const Version = "0.2.0-dev"
+
 // Config controls blocking decisions.
 type Config struct {
 	// Threshold is the anomaly score at which a request is blocked. With the
@@ -114,6 +117,16 @@ func (e *Engine) Inspect(inputs []Input) Result {
 	var res Result
 	rs := e.rules.Load()
 	for _, in := range inputs {
+		if in.Location == locParseDiff {
+			if in.score > 0 {
+				res.Score += in.score
+				res.Findings = append(res.Findings, Finding{
+					RuleID: parseDiffID(in.Name), Category: "parser-differential", Message: in.Value, Score: in.score,
+					Location: in.Location, Name: in.Name,
+				})
+			}
+			continue
+		}
 		norm := normalize.Value(in.Value)
 		if norm == "" {
 			continue
@@ -160,4 +173,22 @@ func sample(s string) string {
 		return s[:n] + "..."
 	}
 	return s
+}
+
+// parseDiffID gives each parser-differential code a stable 7xxx rule id.
+var parseDiffIDs = map[string]int{
+	"content-type-duplicate": 7001, "content-type-malformed": 7002, "content-type-mismatch": 7003, "body-charset": 7004,
+	"body-invalid-utf8": 7005, "json-dup-key": 7101, "json-case-dup-key": 7102, "json-trailing-data": 7103,
+	"json-nonstandard": 7104, "json-bom": 7105, "multipart-boundary-ambiguous": 7201, "multipart-boundary-prefix": 7202,
+	"multipart-no-boundary": 7203, "multipart-parser-disagree": 7204, "multipart-unterminated": 7205,
+	"multipart-lf-line-endings": 7206, "multipart-after-close": 7207, "multipart-dup-param": 7208,
+	"multipart-dup-filename": 7209, "multipart-filename-conflict": 7210, "form-semicolon-separator": 7301,
+	"form-bad-escape": 7302, "query-semicolon-separator": 7303, "query-bad-escape": 7304,
+}
+
+func parseDiffID(code string) int {
+	if id, ok := parseDiffIDs[code]; ok {
+		return id
+	}
+	return 7999
 }

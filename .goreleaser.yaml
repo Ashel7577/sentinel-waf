@@ -1,0 +1,38 @@
+# goreleaser v2: static binaries for every platform, checksums and SBOM.
+# Releases are signed (cosign keyless) and get SLSA build provenance in
+# .github/workflows/release.yml.
+version: 2
+project_name: sentinel-waf
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+builds:
+  - id: sentinel
+    main: ./cmd/waf
+    binary: sentinel-waf
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w"]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+  - id: report
+    main: ./cmd/sentinel-report
+    binary: sentinel-report
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w"]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md, SECURITY.md, CHANGELOG.md, docs/THREAT_MODEL.md]
+checksum:
+  name_template: checksums.txt
+sboms:
+  - artifacts: archive
+changelog:
+  use: github
