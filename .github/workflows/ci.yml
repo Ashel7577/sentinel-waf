@@ -31,7 +31,7 @@ jobs:
       - name: summary
         run: |
           { cat results-builtin.md; echo; echo "### Third-party corpus (SecLists)"; cat results-external.md; echo; echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: eval-results
           path: |
@@ -54,7 +54,7 @@ jobs:
           go-version: stable
       - name: fuzz ${{ matrix.target.fn }} (3 min)
         run: go test ${{ matrix.target.pkg }} -run '^$' -fuzz '^${{ matrix.target.fn }}$' -fuzztime 3m
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: fuzz-crashers-${{ matrix.target.fn }}
@@ -76,7 +76,7 @@ jobs:
         run: go run ./cmd/sentinel-report verify -evidence lab-out/evidence.jsonl
       - name: summary
         run: cat lab-out/results.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: attacklab-evidence-pack
           path: lab-out/
@@ -105,7 +105,7 @@ jobs:
           print(f"- false positives: {100*r['benign']['fp_rate']:.2f}% of {r['benign']['total']} benign requests")
           print(f"- inspection p50 {l['p50']/1000:.1f} µs, p99 {l['p99']/1000:.1f} µs")
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: autoeval-report
@@ -134,7 +134,7 @@ jobs:
         run: go run . -corpus ../../eval/external -max 400 -paranoia ${{ matrix.paranoia }} -out ../../compare-external-pl${{ matrix.paranoia }}.md
       - name: summary
         run: cat compare-*-pl${{ matrix.paranoia }}.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: compare-results-pl${{ matrix.paranoia }}
           path: compare-*.md
@@ -163,7 +163,7 @@ jobs:
           docker run --rm --network host -v "$PWD/reports:/app/reports" wallarm/gotestwaf \
             --url=http://127.0.0.1:8080/ --noEmailReport --blockStatusCodes=403 \
             --reportFormat=html --reportPath=/app/reports --reportName=gotestwaf | tee reports/gotestwaf.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: gotestwaf-report
