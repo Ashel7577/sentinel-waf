@@ -234,6 +234,9 @@ func mdToHTML(md string) string {
 				continue
 			}
 			cells := strings.Split(strings.Trim(l, "|"), " | ")
+			if strings.TrimSpace(strings.Join(cells, "")) == "" {
+				continue // empty header row of a key/value table
+			}
 			if !inTable {
 				b.WriteString("<table>")
 				inTable = true

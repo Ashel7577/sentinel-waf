@@ -10,6 +10,48 @@ Sentinel is a reverse proxy written in Go that sits in front of a web app and bl
 
 **New here? Read [How it works](docs/HOW-IT-WORKS.md)** for a step-by-step walkthrough with diagrams and screenshots.
 
+## Structural attacks: the parser-differential guard
+
+Most WAF bypasses of the last two years leave the payload alone and change the request's *structure*. [WAFFLED](https://arxiv.org/abs/2503.10846) (ACSAC 2025) found 1,207 of them in AWS, Azure, Cloudflare, Google Cloud Armor and ModSecurity: the WAF parses the body one way, the web framework parses it another way, and the payload travels in the part only the application reads. CVE-2026-41508 (Coraza) and CVE-2026-21876 (OWASP CRS) are the same class.
+
+Sentinel reads every body the way several parsers would ([`internal/parsediff`](internal/parsediff)):
+
+- **Go's own parsers** (`mime/multipart`, `encoding/json`, `net/url`), so for a Go backend the WAF inspects exactly what the handler receives. A test checks this against `net/http` itself.
+- **A strict RFC reading.**
+- **The lenient behaviours other frameworks have**: LF-only multipart, parts after the closing delimiter, duplicate `name=` / `filename=` / `filename*`, two boundaries, duplicate JSON keys, case-variant keys (Go's `encoding/json` maps `ROLE` onto `Role`), comments and trailing commas in JSON, trailing JSON documents, `;` parameter separators, comma-joined duplicate parameters (HTTP parameter pollution), Content-Type/body mismatches and exotic charsets.
+
+Every value from every reading is inspected. If the readings disagree in a way that changes what a backend receives, the request is scored (rule ids 7xxx), so it can be blocked even when no payload is recognised.
+
+**Attack lab, run in CI on every push** ([`bench/compare/attacklab`](bench/compare/attacklab)). It fires 17 attacks at a real Go application three ways: directly, to prove whether the payload reaches the app; through Coraza + OWASP CRS v4.25 (PL1); and through Sentinel.
+
+| | Payload reached the unprotected Go app | Coraza + CRS let through | Sentinel let through |
+|---|---|---|---|
+| 17 attacks (5 classic, 12 structural) | 12 | 2 (one of them live) | **0** |
+
+The one live miss for CRS is a command injection inside a JSON body. Several structural tricks do not deliver to a Go app, because Go's parsers are strict there; they target frameworks that accept them, and the table says so per attack. The CI artifact `attacklab-evidence-pack` holds the full per-attack table, the hash-chained evidence, and the analyst's incident report.
+
+## Evidence and the built-in analyst
+
+Start the proxy with `-evidence evidence.jsonl` and every blocked or flagged request is preserved as evidence:
+
+- the full request, with SHA-256 digests of the raw request and the body;
+- the verdict and every finding.
+
+Records are kept in an append-only **SHA-256 hash chain**. Editing, deleting or reordering any record breaks verification (`sentinel-report verify`). Cookie and Authorization values are stored only as digests.
+
+The analyst turns that evidence into an incident report: at `/report` and per incident at `/incident?id=` on the admin port, or offline with `sentinel-report report -out report.html`. For each incident the report gives:
+
+- the technique, with CWE, CAPEC and MITRE ATT&CK ids;
+- how the attack works and what it would have done;
+- exactly which field and value triggered which rule;
+- why the score crossed the threshold;
+- how to fix the application;
+- the raw request, the hashes, and a reproduction command.
+
+![Incident report](docs/incident-report.png)
+
+**Live demo:** `bash scripts/demo.sh` builds everything, sends real benign traffic and 11 attacks through the proxy, verifies the evidence and writes the report. See [docs/DEMO.md](docs/DEMO.md) for the 10-minute walkthrough.
+
 ## Results
 
 These are GitHub CI numbers on Linux, regenerated on every push. Download them from the `compare-results` and `gotestwaf-report` artifacts of any run.
@@ -72,7 +114,7 @@ There are no external dependencies: the WAF uses only the Go standard library.
 ```bash
 go build -o bin/ ./cmd/...
 ./bin/target -listen 127.0.0.1:8000                       # demo upstream (simulates sinks, executes nothing)
-./bin/waf -listen :8080 -upstream http://127.0.0.1:8000   # dashboard on http://127.0.0.1:9090
+./bin/waf -listen :8080 -upstream http://127.0.0.1:8000 -evidence evidence.jsonl   # dashboard on http://127.0.0.1:9090
 ./bin/trafficgen -url http://127.0.0.1:8080 -rps 20       # optional: live mixed traffic for the dashboard
 
 curl "localhost:8080/search?q=1'%20UNION%20SELECT%20password%20FROM%20users--"   # 403
@@ -88,8 +130,9 @@ curl "localhost:8080/search?q=O'Reilly"                                         
 | `-rate` / `-burst` | off | Per-IP rate limit. |
 | `-max-body` | 1 MiB | Request body limit (413 above it). |
 | `-log file` | stdout | Structured JSON logs. |
+| `-evidence file.jsonl` | off | Hash-chained evidence of blocked and flagged requests; enables `/report`, `/incident`, `/verify`. |
 
-Admin endpoints are on `-admin` (localhost only): `/` dashboard, `/stats` JSON, `/metrics` Prometheus, `/healthz`.
+Admin endpoints are on `-admin` (localhost only): `/` dashboard, `/stats` JSON, `/metrics` Prometheus, `/healthz`, plus `/report`, `/report.md`, `/incident?id=`, `/evidence` and `/verify` when evidence capture is on.
 
 ## Reproduce the numbers
 
@@ -112,11 +155,17 @@ cmd/target         safe demo upstream      internal/normalize   decoding + canon
 cmd/eval           detection / FP harness  internal/waf         input extraction, rules, scoring engine
 bench/compare      vs Coraza + CRS         internal/ahocorasick multi-pattern prefilter (DFA)
 eval/corpus        regression corpus       internal/server      proxy, rate limit, metrics, dashboard
+cmd/sentinel-report verify / report     internal/parsediff   multi-parser body readings + disagreements
+bench/compare/attacklab live campaign   internal/evidence    SHA-256 hash-chained evidence vault
+scripts/demo.sh    one-command live demo   internal/analyst     technique knowledge base + incident reports
 ```
+
+Project docs: [threat model](docs/THREAT_MODEL.md) · [security policy](SECURITY.md) · [changelog](CHANGELOG.md) · [demo script](docs/DEMO.md).
 
 ## Limitations and next steps
 
 - Response inspection and outbound data-leak detection are not implemented.
+- The parser-differential guard models Go exactly and other frameworks' *known* lenient behaviours. The next step is a per-framework differential harness (Flask, Express, Spring, Laravel as CI services) that measures each framework's parse of the WAFFLED grammars, so per-backend profiles are measured rather than modelled.
 - Path traversal (64.5%, the one category where CRS wins) needs work. The next step is a path canonicalizer that resolves `..` sequences against a virtual root.
 - The ML stage from the original plan is not built yet: a character n-gram model trained on CSIC 2010, evaluated with a source-disjoint split.
 - GoTestWAF coverage: NoSQL, mail-header injection, Base64-encoded payloads, GraphQL and gRPC bodies.

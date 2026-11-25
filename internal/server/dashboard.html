@@ -2,566 +2,314 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sentinel WAF · Live</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel WAF · Operations</title>
 <style>
 :root{
-  --bg:#060912; --bg2:#0a0f1c; --panel:rgba(15,22,38,.72); --panel-b:rgba(120,150,220,.12);
-  --text:#e7ecf7; --dim:#8a96b3; --faint:#55607a;
-  --cyan:#22d3ee; --green:#34d399; --red:#fb3b5c; --amber:#fbbf24; --violet:#a78bfa; --blue:#60a5fa;
-  --glow-c:0 0 24px rgba(34,211,238,.35); --r:14px;
+  color-scheme:light;
+  --bg:#f4f5f3;--surface-1:#fcfcfb;--surface-2:#f0efec;--line:#dcdbd5;--grid:#e8e7e2;
+  --text-primary:#0b0b0b;--text-secondary:#52514e;--text-muted:#7a7974;
+  --series-1:#2a78d6;--bar:#2a78d6;
+  --good:#0ca30c;--warning:#b77d00;--serious:#ec835a;--critical:#d03b3b;
+  --good-bg:#e5f4e5;--warning-bg:#fbf0d6;--critical-bg:#f9e1e1;
+  --focus:#2a78d6;
+}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){
+  color-scheme:dark;
+  --bg:#111110;--surface-1:#1a1a19;--surface-2:#232321;--line:#2f2f2c;--grid:#262624;
+  --text-primary:#f0efec;--text-secondary:#c3c2b7;--text-muted:#8d8c84;
+  --series-1:#3987e5;--bar:#3987e5;
+  --good:#0ca30c;--warning:#fab219;--serious:#ec835a;--critical:#e66767;
+  --good-bg:#13301a;--warning-bg:#3a2d0c;--critical-bg:#3d1a1a;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#111110;--surface-1:#1a1a19;--surface-2:#232321;--line:#2f2f2c;--grid:#262624;
+  --text-primary:#f0efec;--text-secondary:#c3c2b7;--text-muted:#8d8c84;
+  --series-1:#3987e5;--bar:#3987e5;
+  --good:#0ca30c;--warning:#fab219;--serious:#ec835a;--critical:#e66767;
+  --good-bg:#13301a;--warning-bg:#3a2d0c;--critical-bg:#3d1a1a;
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Inter",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
-body{min-height:100vh;background:
-  radial-gradient(1200px 600px at 15% -10%,rgba(34,211,238,.10),transparent 60%),
-  radial-gradient(900px 500px at 100% 0%,rgba(167,139,250,.10),transparent 60%),
-  radial-gradient(800px 600px at 50% 120%,rgba(251,59,92,.06),transparent 60%),var(--bg)}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.35;
-  background-image:linear-gradient(rgba(120,150,220,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(120,150,220,.06) 1px,transparent 1px);
-  background-size:44px 44px;mask-image:radial-gradient(circle at 50% 30%,#000 30%,transparent 80%)}
-.mono{font-family:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace}
-.num{font-variant-numeric:tabular-nums}
-
-/* ---------- header ---------- */
-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:14px 26px;
-  background:linear-gradient(180deg,rgba(6,9,18,.92),rgba(6,9,18,.70));backdrop-filter:blur(14px);border-bottom:1px solid var(--panel-b)}
-.brand{display:flex;align-items:center;gap:12px}
-.logo{width:38px;height:38px;position:relative}
-.logo svg{width:100%;height:100%;filter:drop-shadow(0 0 10px rgba(34,211,238,.55))}
-.logo .scan{position:absolute;left:6px;right:6px;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);animation:scan 2.4s ease-in-out infinite}
-@keyframes scan{0%,100%{top:8px;opacity:0}20%,80%{opacity:1}50%{top:28px}}
-.brand h1{margin:0;font-size:18px;letter-spacing:.3px;font-weight:700}
-.brand small{display:block;color:var(--dim);font-size:11.5px;letter-spacing:1.6px;text-transform:uppercase}
-.status{display:flex;align-items:center;gap:9px;padding:6px 13px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:1.2px;
-  background:rgba(52,211,153,.10);color:var(--green);border:1px solid rgba(52,211,153,.35)}
-.status i{width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 0 0 currentColor;animation:ping 1.6s infinite}
-@keyframes ping{0%{box-shadow:0 0 0 0 rgba(52,211,153,.7)}70%{box-shadow:0 0 0 10px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
-.status.monitor{background:rgba(251,191,36,.10);color:var(--amber);border-color:rgba(251,191,36,.35)}
-.status.off{background:rgba(251,59,92,.12);color:var(--red);border-color:rgba(251,59,92,.4)}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
-.chip{padding:5px 11px;border-radius:8px;background:rgba(120,150,220,.07);border:1px solid var(--panel-b);color:var(--dim);font-size:12px}
-.chip b{color:var(--text);font-weight:600}
-
-main{padding:22px 26px 40px;max-width:1680px;margin:0 auto}
-
-/* ---------- KPIs ---------- */
-.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;margin-bottom:16px}
-.kpi{position:relative;overflow:hidden;padding:15px 16px 12px;border-radius:var(--r);background:var(--panel);border:1px solid var(--panel-b);backdrop-filter:blur(10px);
-  transition:transform .25s,border-color .25s}
-.kpi:hover{transform:translateY(-2px);border-color:rgba(120,150,220,.28)}
-.kpi::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(135deg,var(--accent,transparent) -60%,transparent 45%);opacity:.14}
-.kpi .k{font-size:11px;color:var(--dim);letter-spacing:1.3px;text-transform:uppercase;display:flex;justify-content:space-between}
-.kpi .v{font-size:30px;font-weight:700;margin-top:6px;letter-spacing:-.5px}
-.kpi .v small{font-size:13px;color:var(--dim);font-weight:500;margin-left:4px}
-.kpi .sub{font-size:12px;color:var(--dim);margin-top:2px;min-height:18px}
-.kpi canvas{display:block;width:100%;height:34px;margin-top:6px}
-.kpi.flash{animation:flash .6s}
-@keyframes flash{0%{box-shadow:0 0 0 0 rgba(251,59,92,.0)}30%{box-shadow:0 0 28px 2px rgba(251,59,92,.35)}100%{box-shadow:0 0 0 0 rgba(251,59,92,0)}}
-
-/* ---------- panels ---------- */
-.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
-.panel{position:relative;border-radius:var(--r);background:var(--panel);border:1px solid var(--panel-b);backdrop-filter:blur(10px);padding:16px 18px;min-width:0}
-.panel h2{margin:0 0 12px;font-size:12px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:10px}
-.panel h2 .live{display:inline-flex;align-items:center;gap:6px;color:var(--red);font-size:10.5px}
-.panel h2 .live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 1.2s infinite}
-@keyframes blink{50%{opacity:.25}}
-.panel h2 .right{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:var(--faint);font-size:12px}
-.span8{grid-column:span 8}.span4{grid-column:span 4}.span12{grid-column:span 12}.span7{grid-column:span 7}.span5{grid-column:span 5}
-
-#flow{width:100%;height:360px;display:block;border-radius:10px}
-#tp{width:100%;height:230px;display:block}
-.legend{display:flex;gap:16px;font-size:12px;color:var(--dim)}
-.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--c)}
-
-/* donut */
-.donutwrap{display:flex;gap:18px;align-items:center}
-#donut{width:190px;height:190px;flex:none}
-.cats{flex:1;display:flex;flex-direction:column;gap:7px;min-width:0}
-.cat{display:grid;grid-template-columns:12px 1fr auto auto;gap:9px;align-items:center;font-size:13px}
-.cat i{width:10px;height:10px;border-radius:3px;background:var(--c);box-shadow:0 0 10px var(--c)}
-.cat .n{font-weight:600}.cat .p{color:var(--faint);width:42px;text-align:right}
-
-/* histogram */
-.hist{display:flex;align-items:flex-end;gap:6px;height:170px;padding-top:10px}
-.hist .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
-.hist .bar{width:100%;border-radius:6px 6px 2px 2px;background:linear-gradient(180deg,var(--cyan),rgba(34,211,238,.15));
-  box-shadow:0 0 14px rgba(34,211,238,.25);height:2px;transition:height .8s cubic-bezier(.2,.8,.2,1)}
-.hist .lbl{font-size:10.5px;color:var(--faint);white-space:nowrap}
-.hist .cnt{font-size:11px;color:var(--dim)}
-.lat-stats{display:flex;gap:18px;margin-top:12px;font-size:12.5px;color:var(--dim)}
-.lat-stats b{color:var(--text);font-size:15px}
-
-/* feed */
-.feed{display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto;padding-right:4px}
-.feed::-webkit-scrollbar{width:8px}.feed::-webkit-scrollbar-thumb{background:rgba(120,150,220,.18);border-radius:8px}
-.ev{position:relative;border-radius:11px;background:rgba(10,15,28,.7);border:1px solid var(--panel-b);padding:10px 12px 10px 16px;cursor:pointer;
-  transition:border-color .2s,background .2s;animation:slidein .55s cubic-bezier(.2,.9,.2,1)}
-.ev:hover{border-color:rgba(120,150,220,.3);background:rgba(14,20,36,.85)}
-.ev::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--sev)}
-.ev.new{box-shadow:0 0 0 1px var(--sev),0 0 22px -4px var(--sev)}
-@keyframes slidein{from{opacity:0;transform:translateX(-18px) scale(.98)}to{opacity:1;transform:none}}
-.ev .top{display:flex;align-items:center;gap:10px;min-width:0}
-.badge{font-size:10.5px;font-weight:800;letter-spacing:1px;padding:3px 8px;border-radius:6px;text-transform:uppercase;flex:none}
-.badge.blocked{background:rgba(251,59,92,.15);color:#ff6b84;border:1px solid rgba(251,59,92,.35)}
-.badge.flagged{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid rgba(251,191,36,.35)}
-.badge.rate-limited,.badge.too-large{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.35)}
-.meth{font-size:11px;font-weight:700;color:var(--violet);flex:none}
-.path{font-size:12.5px;color:#cbd5ea;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-.score{flex:none;font-weight:800;font-size:13px;color:var(--sev)}
-.ev .meta{display:flex;gap:8px;align-items:center;margin-top:6px;font-size:12px;color:var(--dim);flex-wrap:wrap}
-.tag{font-size:11px;padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c);border:1px solid color-mix(in srgb,var(--c) 40%,transparent)}
-.ev .det{display:none;margin-top:10px;border-top:1px dashed rgba(120,150,220,.18);padding-top:8px}
-.ev.open .det{display:block;animation:fade .3s}
-@keyframes fade{from{opacity:0}to{opacity:1}}
-.det table{width:100%;border-collapse:collapse;font-size:12px}
-.det td{padding:4px 6px;border-bottom:1px solid rgba(120,150,220,.08);vertical-align:top}
-.det td:first-child{color:var(--cyan);width:56px}
-.det .loc{color:var(--amber)}
-
-/* bars */
-.bars{display:flex;flex-direction:column;gap:9px}
-.brow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;font-size:12.5px}
-.brow .id{font-size:11px;padding:2px 7px;border-radius:5px;background:rgba(34,211,238,.10);color:var(--cyan);border:1px solid rgba(34,211,238,.25)}
-.brow .name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#cbd5ea}
-.brow .track{grid-column:1/-1;height:5px;border-radius:5px;background:rgba(120,150,220,.08);overflow:hidden;margin-top:-4px}
-.brow .fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--c1,var(--cyan)),var(--c2,var(--violet)));width:0;transition:width .9s cubic-bezier(.2,.8,.2,1)}
-.ip{display:inline-flex;align-items:center;gap:8px}
-.ip i{width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c)}
-.locs{display:flex;flex-wrap:wrap;gap:7px}
-.empty{color:var(--faint);font-size:13px;padding:6px 0}
-footer{color:var(--faint);font-size:12px;text-align:center;margin-top:22px}
-footer a{color:var(--dim)}
-
-@media (max-width:1250px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.span8,.span4,.span7,.span5{grid-column:span 12}}
-@media (max-width:640px){main{padding:14px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}header{padding:12px 14px}.chips{margin-left:0}.donutwrap{flex-direction:column}}
+html,body{margin:0;background:var(--bg);color:var(--text-primary);font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mono,.num{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+a{color:var(--series-1)}
+button{font:inherit;color:inherit;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:3px 9px;cursor:pointer}
+button:focus-visible,a:focus-visible,tr:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px 16px;background:var(--surface-1);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.brand{font-weight:650;letter-spacing:.06em;font-size:13px}
+.brand small{font-weight:500;color:var(--text-muted);letter-spacing:.04em;margin-left:8px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--text-secondary);white-space:nowrap;text-decoration:none}
+.pill b{color:var(--text-primary);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--text-muted)}
+.dot.ok{background:var(--good)}.dot.warn{background:var(--warning)}.dot.bad{background:var(--critical)}
+main{padding:14px 16px 32px;display:grid;gap:12px;grid-template-columns:repeat(12,minmax(0,1fr));max-width:1600px;margin:0 auto}
+.panel{background:var(--surface-1);border:1px solid var(--line);border-radius:6px;padding:12px 14px;min-width:0}
+.panel h2{margin:0 0 8px;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary);display:flex;align-items:center;gap:8px}
+.panel h2 .src{margin-left:auto;font-weight:400;letter-spacing:0;text-transform:none;color:var(--text-muted);font-size:11px}
+.s3{grid-column:span 3}.s4{grid-column:span 4}.s6{grid-column:span 6}.s8{grid-column:span 8}
+.kpis{grid-column:span 12;display:grid;gap:12px;grid-template-columns:repeat(6,minmax(0,1fr))}
+.kpi .v{font-size:26px;font-weight:600;line-height:1.15}
+.kpi .sub{color:var(--text-muted);font-size:12px;margin-top:2px}
+.kpi .sub b{color:var(--text-secondary);font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:4px;padding:0 6px;font-size:11.5px;font-weight:600;line-height:18px;white-space:nowrap}
+.badge.blocked{background:var(--critical-bg);color:var(--critical)}
+.badge.flagged{background:var(--warning-bg);color:var(--warning)}
+.badge.allowed,.badge.ok{background:var(--good-bg);color:var(--good)}
+.badge.neutral{background:var(--surface-2);color:var(--text-secondary)}
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+td{padding:5px 6px;border-bottom:1px solid var(--grid);vertical-align:top}
+td.r,th.r{text-align:right}
+tbody tr.click{cursor:pointer}tbody tr.click:hover{background:var(--surface-2)}
+tbody tr.sel{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--series-1)}
+.wrap{overflow-wrap:anywhere}
+.empty{color:var(--text-muted);padding:18px 0;text-align:center}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--text-secondary);margin:0 0 6px}
+.legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px;border-radius:1px}
+.chart{position:relative}
+.chart svg{display:block;width:100%;overflow:visible}
+.tip{position:absolute;pointer-events:none;background:var(--surface-1);border:1px solid var(--line);border-radius:5px;padding:6px 8px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,.18);white-space:nowrap;display:none;z-index:3}
+.tip .t{color:var(--text-muted);margin-bottom:2px}
+.tip .row{display:flex;gap:12px;justify-content:space-between}
+.bars .row{display:grid;grid-template-columns:minmax(90px,38%) 1fr 54px;gap:8px;align-items:center;padding:3px 0}
+.bars .lab{color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bars .track{height:10px;position:relative}
+.bars .fill{position:absolute;left:0;top:0;bottom:0;background:var(--bar);border-radius:0 4px 4px 0;min-width:2px}
+.bars .n{text-align:right}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12.5px;margin:0}
+.kv dt{color:var(--text-muted)}.kv dd{margin:0;text-align:right}
+.detail{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}
+.detail h3{margin:0 0 6px;font-size:13px}
+.tag{font-size:10.5px;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--text-muted);margin-left:4px}
+.tools{display:flex;gap:6px;margin-left:auto}
+.foot{grid-column:span 12;color:var(--text-muted);font-size:11.5px;text-align:center}
+.stale{color:var(--critical)}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.s3,.s4{grid-column:span 6}.s8{grid-column:span 12}}
+@media (max-width:700px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.s3,.s4,.s6,.s8{grid-column:span 12}header{position:static}}
+@media (forced-colors:active){.bars .fill{background:CanvasText}.dot{border:1px solid CanvasText}}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">
-    <div class="logo">
-      <svg viewBox="0 0 40 40" fill="none"><path d="M20 3 6 8.5v9.7c0 8.7 5.9 15.9 14 18.8 8.1-2.9 14-10.1 14-18.8V8.5L20 3Z" stroke="#22d3ee" stroke-width="2" fill="rgba(34,211,238,.08)"/><path d="m14 20 4.2 4.2L27 15.5" stroke="#34d399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-
-    </div>
-    <div><h1>Sentinel WAF</h1><small>Live threat operations</small></div>
-  </div>
-  <div class="status" id="status"><i></i><span>CONNECTING</span></div>
-  <div class="chips">
-    <div class="chip">upstream <b id="up" class="mono">–</b></div>
-    <div class="chip">threshold <b id="thr">–</b></div>
-    <div class="chip">paranoia <b id="pl">–</b></div>
-    <div class="chip">rules <b id="rules">–</b></div>
-    <div class="chip">uptime <b id="uptime" class="num">–</b></div>
-  </div>
+  <div class="brand">SENTINEL WAF<small>OPERATIONS</small></div>
+  <div class="pills" id="pills"></div>
+  <a class="pill" href="/report" target="_blank" rel="noopener" id="reportLink">Analyst report ↗</a>
+  <button id="theme" aria-label="Toggle colour theme">Theme</button>
 </header>
-
 <main>
-  <section class="kpis">
-    <div class="kpi" style="--accent:var(--cyan)"><div class="k">Requests / sec <span style="text-transform:none;letter-spacing:0">5 s avg</span></div><div class="v num" id="k-rps">0</div><div class="sub" id="k-req">0 total</div><canvas id="s-rps"></canvas></div>
-    <div class="kpi" id="kpi-blk" style="--accent:var(--red)"><div class="k">Blocked</div><div class="v num" id="k-blk">0</div><div class="sub" id="k-blkr">0% of traffic</div><canvas id="s-blk"></canvas></div>
-    <div class="kpi" style="--accent:var(--green)"><div class="k">Delivered</div><div class="v num" id="k-ok">0</div><div class="sub" id="k-okr">clean traffic</div><canvas id="s-ok"></canvas></div>
-    <div class="kpi" style="--accent:var(--amber)"><div class="k">Flagged</div><div class="v num" id="k-flg">0</div><div class="sub">below threshold / monitor</div><canvas id="s-flg"></canvas></div>
-    <div class="kpi" style="--accent:var(--violet)"><div class="k">Median inspection</div><div class="v num" id="k-lat">0<small>µs</small></div><div class="sub" id="k-p99">p99 ≤ –</div><canvas id="s-lat"></canvas></div>
-    <div class="kpi" style="--accent:var(--blue)"><div class="k">Unique attackers</div><div class="v num" id="k-ips">0</div><div class="sub" id="k-cats">0 attack classes</div><canvas id="s-ips"></canvas></div>
+  <section class="kpis" aria-label="Key figures">
+    <div class="panel kpi"><h2>Requests</h2><div class="v num" id="kReq">–</div><div class="sub" id="kReqSub">–</div></div>
+    <div class="panel kpi"><h2>Blocked</h2><div class="v num" id="kBlk">–</div><div class="sub" id="kBlkSub">–</div></div>
+    <div class="panel kpi"><h2>Flagged</h2><div class="v num" id="kFlg">–</div><div class="sub" id="kFlgSub">–</div></div>
+    <div class="panel kpi"><h2>Attacking sources</h2><div class="v num" id="kIps">–</div><div class="sub">distinct IPs with a finding</div></div>
+    <div class="panel kpi"><h2>Inspection latency</h2><div class="v num" id="kLat">–</div><div class="sub" id="kLatSub">–</div></div>
+    <div class="panel kpi"><h2>Evidence chain</h2><div class="v" id="kEv">–</div><div class="sub mono" id="kEvSub">–</div></div>
   </section>
 
-  <section class="grid">
-    <div class="panel span8">
-      <h2>Live traffic flow <span class="live">LIVE</span><span class="right" id="flow-note">one dot = one real request · real order &amp; timing</span></h2>
-      <canvas id="flow"></canvas>
-    </div>
-    <div class="panel span4">
-      <h2>Attack classes <span class="right" id="cat-total"></span></h2>
-      <div class="donutwrap"><canvas id="donut"></canvas><div class="cats" id="cats"><div class="empty">No attacks yet</div></div></div>
-    </div>
-
-    <div class="panel span8">
-      <h2>Throughput · last 2 minutes
-        <span class="legend" style="margin-left:auto"><span style="--c:var(--green)">allowed</span><span style="--c:var(--amber)">flagged</span><span style="--c:var(--red)">blocked</span></span>
-      </h2>
-      <canvas id="tp"></canvas>
-    </div>
-    <div class="panel span4">
-      <h2>Inspection latency <span class="right">per request</span></h2>
-      <div class="hist" id="hist"></div>
-      <div class="lat-stats"><div>mean <b id="l-avg" class="num">–</b></div><div>p50 <b id="l-p50" class="num">–</b></div><div>p99 <b id="l-p99" class="num">–</b></div><div>max <b id="l-max" class="num">–</b></div></div>
-      <div style="color:var(--faint);font-size:11.5px;margin-top:6px">exact percentiles over the last <span id="l-n">–</span> requests · parse + inspect, measured with a high-resolution clock</div>
-    </div>
-
-    <div class="panel span7">
-      <h2>Threat feed <span class="live">LIVE</span><span class="right">click an event for the full finding trail</span></h2>
-      <div class="feed" id="feed"><div class="empty">Waiting for threats…</div></div>
-    </div>
-    <div class="panel span5" style="display:flex;flex-direction:column;gap:18px">
-      <div><h2>Top triggered rules</h2><div class="bars" id="rules-top"><div class="empty">–</div></div></div>
-      <div><h2>Top attacking IPs</h2><div class="bars" id="ips-top"><div class="empty">–</div></div></div>
-      <div><h2>Where payloads were found</h2><div class="locs" id="locs"><div class="empty">–</div></div></div>
-    </div>
+  <section class="panel s8">
+    <h2>Traffic per second <span class="src">last 5 min</span>
+      <span class="tools"><button id="trafficTableBtn" aria-pressed="false">Table</button></span></h2>
+    <div class="legend" id="trafficLegend"></div>
+    <div class="chart" id="traffic"></div>
+    <div id="trafficTable" hidden></div>
   </section>
-  <footer>Sentinel WAF · <a href="/metrics">Prometheus metrics</a> · <a href="/stats">raw stats</a></footer>
+  <section class="panel s4">
+    <h2>Inspection latency distribution <span class="src">all requests</span></h2>
+    <div class="chart" id="hist"></div>
+    <dl class="kv" id="latKv" style="margin-top:8px"></dl>
+  </section>
+
+  <section class="panel s3"><h2>Attack classes <span class="src">findings</span></h2><div class="bars" id="cats"></div></section>
+  <section class="panel s3"><h2>Where in the request <span class="src">findings</span></h2><div class="bars" id="locs"></div></section>
+  <section class="panel s3"><h2>Top rules</h2><div id="rules"></div></section>
+  <section class="panel s3"><h2>Top sources</h2><div id="ips"></div></section>
+
+  <section class="panel s8">
+    <h2>Threat feed <span class="src">newest first · select a row for the analysis</span></h2>
+    <div id="threats"></div>
+  </section>
+  <section class="panel s4">
+    <h2>Incident detail</h2>
+    <div id="detail"><div class="empty">Select a threat to see what was detected, where, and why it was blocked.</div></div>
+  </section>
+
+  <section class="panel s6">
+    <h2>Parser-differential guard <span class="src">rule ids 7xxx</span></h2>
+    <div id="pdiff"></div>
+  </section>
+  <section class="panel s6">
+    <h2>Engine and process <span class="src">runtime, live</span></h2>
+    <dl class="kv" id="sys"></dl>
+  </section>
+  <div class="foot">Every figure on this page is read from this Sentinel process (/stats, evidence verification). Nothing is simulated.</div>
 </main>
-
 <script>
 "use strict";
-const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const DPR = Math.min(window.devicePixelRatio || 1, 2);
-const CAT = {sqli:"#fb3b5c",xss:"#fbbf24",cmdi:"#a78bfa",traversal:"#60a5fa",rce:"#f472b6",ssrf:"#2dd4bf",ssti:"#facc15",
-  xxe:"#a3e635",scanner:"#94a3b8",nosqli:"#fb7185",proto:"#c084fc",crlf:"#22d3ee",ldapi:"#4ade80",ssi:"#fb923c",
-  upload:"#e879f9",smuggling:"#38bdf8",xpathi:"#bef264"};
-const catColor = c => CAT[c] || "#94a3b8";
-const sevColor = s => s >= 10 ? "#fb3b5c" : s >= 5 ? "#ff7a45" : "#fbbf24";
-const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e4 ? (n/1e3).toFixed(1)+"k" : Math.round(n).toLocaleString();
-const fmtUs = v => v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 0 : 1)+" ms" : Math.round(v)+" µs";
-const hashColor = s => { let h = 0; for (const c of s) h = (h*31 + c.charCodeAt(0)) >>> 0; return `hsl(${h%360} 85% 62%)`; };
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=n=>n==null?"–":Number(n).toLocaleString("en-US");
+const pct=(a,b)=>b>0?(100*a/b).toFixed(a/b<0.01&&a>0?2:1)+"%":"0%";
+const us=v=>v==null?"–":v>=1000?(v/1000).toFixed(v>=10000?0:2)+" ms":Math.round(v)+" µs";
+const bytes=b=>b>=1<<30?(b/(1<<30)).toFixed(2)+" GiB":b>=1<<20?(b/(1<<20)).toFixed(1)+" MiB":(b/1024).toFixed(0)+" KiB";
+const dur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:m?`${m}m ${s%60}s`:`${s}s`};
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
-function sizeCanvas(cv) {
-  const r = cv.getBoundingClientRect();
-  const w = Math.max(1, Math.round(r.width * DPR)), h = Math.max(1, Math.round(r.height * DPR));
-  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-  const ctx = cv.getContext("2d"); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  return [ctx, r.width, r.height];
+(function(){let t=null;try{t=localStorage.getItem("sentinel-theme")}catch(e){}
+ if(t)document.documentElement.dataset.theme=t;
+ $("theme").onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
+  const nx=cur==="dark"?"light":"dark";document.documentElement.dataset.theme=nx;try{localStorage.setItem("sentinel-theme",nx)}catch(e){};if(last)render(last)};})();
+
+let last=null,lastOk=0,selected=null,threats=[];
+const SERIES=[{k:"a",name:"Allowed",color:"--series-1"},{k:"f",name:"Flagged",color:"--warning"},{k:"b",name:"Blocked",color:"--critical"}];
+
+async function poll(){
+  try{
+    const r=await fetch("/stats?window=300",{cache:"no-store"});
+    if(!r.ok)throw new Error(r.status);
+    last=await r.json();lastOk=Date.now();render(last);
+  }catch(e){status()}
+  setTimeout(poll,1000);
+}
+function status(){
+  if(!last)return;
+  const age=(Date.now()-lastOk)/1000,s=last.stats,ev=last.evidence||{};
+  const live=age<3;
+  const p=[
+    `<span class="pill"><span class="dot ${live?"ok":"bad"}"></span><b class="${live?"":"stale"}">${live?"LIVE":"NO DATA"}</b> ${live?"updated "+Math.round(age)+"s ago":"last update "+Math.round(age)+"s ago"}</span>`,
+    `<span class="pill">Mode <b>${esc(last.mode).toUpperCase()}</b></span>`,
+    `<span class="pill">Threshold <b class="num">${last.threshold}</b> · PL <b class="num">${last.paranoia}</b></span>`,
+    `<span class="pill">Upstream <b class="mono">${esc(last.upstream)}</b></span>`,
+    `<span class="pill">Uptime <b class="num">${dur(s.uptime_seconds)}</b></span>`,
+    `<span class="pill">Engine <b class="mono">${esc(last.system?.version)}</b></span>`];
+  if(ev.enabled)p.push(`<span class="pill"><span class="dot ${ev.ok?"ok":"bad"}"></span>Evidence <b>${ev.ok?"VERIFIED":"BROKEN"}</b></span>`);
+  $("pills").innerHTML=p.join("");
+}
+setInterval(status,1000);
+
+function render(d){
+  const s=d.stats;status();
+  const ser=s.series||[];
+  const last10=ser.slice(-10).reduce((a,p)=>a+p.a+p.b+p.f,0)/10;
+  $("kReq").textContent=fmt(s.requests);
+  $("kReqSub").innerHTML=`<b class="num">${last10.toFixed(1)}</b> req/s (10 s avg) · <b class="num">${fmt(s.upstream_errors)}</b> upstream errors`;
+  $("kBlk").textContent=fmt(s.blocked);
+  $("kBlkSub").innerHTML=`<b class="num">${pct(s.blocked,s.requests)}</b> of requests · <b class="num">${fmt(s.rate_limited)}</b> rate-limited · <b class="num">${fmt(s.too_large)}</b> too large`;
+  $("kFlg").textContent=fmt(s.flagged);
+  $("kFlgSub").innerHTML=`below threshold, logged only (${pct(s.flagged,s.requests)})`;
+  $("kIps").textContent=fmt(s.unique_attackers);
+  const rl=s.recent_latency||{};
+  $("kLat").textContent=rl.samples?us(rl.p50_us):"–";
+  $("kLatSub").innerHTML=rl.samples?`p50 · p99 <b class="num">${us(rl.p99_us)}</b> · max <b class="num">${us(rl.max_us)}</b> · last ${fmt(rl.samples)} req`:"no requests yet";
+  const ev=d.evidence||{};
+  if(!ev.enabled){$("kEv").innerHTML=`<span class="badge neutral">OFF</span>`;$("kEvSub").textContent="start with -evidence file.jsonl";$("reportLink").hidden=true}
+  else{$("reportLink").hidden=false;
+    $("kEv").innerHTML=ev.ok?`<span class="badge ok">✓ VERIFIED</span> <span class="num" style="font-size:15px">${fmt(ev.records)} records</span>`:`<span class="badge blocked">✕ BROKEN</span>`;
+    $("kEvSub").textContent=ev.ok?(ev.head?"head "+ev.head.slice(0,16)+"…":"no records yet"):`record ${ev.bad_seq}: ${ev.problem}`;}
+
+  traffic(ser);hist(s);
+  bars("cats",Object.entries(s.categories||{}).map(([k,v])=>({k,v})));
+  bars("locs",(s.locations||[]).map(x=>({k:x.key,v:x.count})));
+  $("rules").innerHTML=(s.top_rules||[]).length?`<table><thead><tr><th>Rule</th><th>Description</th><th class="r">Hits</th></tr></thead><tbody>${s.top_rules.map(r=>`<tr><td class="mono">${esc(r.key)}${r.key.startsWith("7")?'<span class="tag">parser</span>':""}</td><td class="wrap">${esc(r.name)}</td><td class="r num">${fmt(r.count)}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">No findings yet</div>`;
+  $("ips").innerHTML=(s.top_ips||[]).length?`<table><thead><tr><th>Source IP</th><th class="r">Findings</th></tr></thead><tbody>${s.top_ips.map(r=>`<tr><td class="mono">${esc(r.key)}</td><td class="r num">${fmt(r.count)}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">No attacking sources yet</div>`;
+  threatsTable(s.threats||[]);
+  pdiff(s);sys(d);
 }
 
-/* ---------------- animated numbers ---------------- */
-const tweens = {};
-function setNum(id, target, f = fmt, suffix = "") {
-  const t = tweens[id] || (tweens[id] = {cur: 0, target: 0});
-  t.target = target; t.f = f; t.suffix = suffix;
-  if (first) { t.cur = target; } // show true values immediately; only later changes animate
+function traffic(ser){
+  const el=$("traffic"),W=el.clientWidth||700,H=220,m={l:40,r:84,t:8,b:22};
+  const iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const max=Math.max(1,...ser.map(p=>Math.max(p.a,p.b,p.f)));
+  const step=niceStep(max),ymax=Math.ceil(max/step)*step;
+  const x=i=>m.l+(ser.length<2?0:i*iw/(ser.length-1)),y=v=>m.t+ih-v/ymax*ih;
+  let g="";
+  for(let v=0;v<=ymax+1e-9;v+=step){g+=`<line x1="${m.l}" x2="${m.l+iw}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--grid")}"/><text x="${m.l-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="${css("--text-muted")}">${fmtShort(v)}</text>`}
+  [300,240,180,120,60,0].forEach(sAgo=>{const i=ser.length-1-sAgo;if(i<0)return;g+=`<text x="${x(i)}" y="${H-6}" text-anchor="${sAgo?"middle":"end"}" font-size="11" fill="${css("--text-muted")}">${sAgo?"-"+sAgo/60+" min":"now"}</text>`});
+  let lines="",labels=[];
+  SERIES.forEach(S=>{const c=css(S.color);
+    const pts=ser.map((p,i)=>`${x(i).toFixed(1)},${y(p[S.k]).toFixed(1)}`).join(" ");
+    lines+=`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const lv=ser.length?ser[ser.length-1][S.k]:0;labels.push({y:y(lv),t:`${S.name} ${lv}`});});
+  labels.sort((a,b)=>a.y-b.y);for(let i=1;i<labels.length;i++)if(labels[i].y-labels[i-1].y<13)labels[i].y=labels[i-1].y+13;
+  const over=labels.length?labels[labels.length-1].y-(m.t+ih):0;if(over>0)labels.forEach(l=>l.y-=over);
+  const lab=labels.map(l=>`<text x="${m.l+iw+6}" y="${l.y+4}" font-size="11" fill="${css("--text-secondary")}">${esc(l.t)}</text>`).join("");
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Requests per second over the last five minutes: allowed, flagged and blocked">${g}${lines}${lab}<line id="xh" y1="${m.t}" y2="${m.t+ih}" stroke="${css("--text-muted")}" stroke-dasharray="3 3" visibility="hidden"/><rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" id="hit"/></svg><div class="tip" id="ttip"></div>`;
+  $("trafficLegend").innerHTML=SERIES.map(S=>`<span><i style="background:${css(S.color)}"></i>${S.name}</span>`).join("");
+  const hit=el.querySelector("#hit"),xh=el.querySelector("#xh"),tip=el.querySelector("#ttip");
+  hit.onmousemove=e=>{const r=hit.getBoundingClientRect();const fx=(e.clientX-r.left)/r.width;const i=Math.round(fx*(ser.length-1));const p=ser[i];if(!p)return;
+    const px=x(i);xh.setAttribute("x1",px);xh.setAttribute("x2",px);xh.setAttribute("visibility","visible");
+    tip.innerHTML=`<div class="t">${new Date(p.t*1000).toLocaleTimeString([],{hour12:false})}</div>`+SERIES.slice().reverse().map(S=>`<div class="row"><span><i style="display:inline-block;width:10px;height:2px;background:${css(S.color)};vertical-align:middle;margin-right:5px"></i>${S.name}</span><b class="num">${p[S.k]}</b></div>`).join("");
+    tip.style.display="block";const tw=tip.offsetWidth;tip.style.left=Math.min(Math.max(px*el.clientWidth/W+10,0),el.clientWidth-tw)+"px";tip.style.top="10px"};
+  hit.onmouseleave=()=>{tip.style.display="none";xh.setAttribute("visibility","hidden")};
+  if(!$("trafficTable").hidden){const rows=ser.slice(-30).reverse();$("trafficTable").innerHTML=`<table><thead><tr><th>Second</th><th class="r">Allowed</th><th class="r">Flagged</th><th class="r">Blocked</th></tr></thead><tbody>${rows.map(p=>`<tr><td class="mono">${new Date(p.t*1000).toLocaleTimeString([],{hour12:false})}</td><td class="r num">${p.a}</td><td class="r num">${p.f}</td><td class="r num">${p.b}</td></tr>`).join("")}</tbody></table>`}
 }
-function stepNums(dt) {
-  for (const id in tweens) {
-    const t = tweens[id];
-    const d = t.target - t.cur;
-    t.cur = Math.abs(d) < 0.5 ? t.target : t.cur + d * Math.min(1, dt * 7);
-    $(id).innerHTML = t.f(t.cur) + t.suffix;
-  }
-}
+$("trafficTableBtn").onclick=e=>{const t=$("trafficTable");t.hidden=!t.hidden;e.target.setAttribute("aria-pressed",String(!t.hidden));if(last)render(last)};
+function niceStep(max){const raw=max/4,p=Math.pow(10,Math.floor(Math.log10(raw)));const n=raw/p;return Math.max(1,(n<=1?1:n<=2?2:n<=5?5:10)*p)}
+function fmtShort(v){return v>=1000?(v/1000)+"k":String(Math.round(v*100)/100)}
 
-/* ---------------- sparklines ---------------- */
-function spark(id, vals, color) {
-  const [ctx, w, h] = sizeCanvas($(id));
-  ctx.clearRect(0, 0, w, h);
-  if (!vals.length) return;
-  const max = Math.max(1, ...vals);
-  const x = i => (i / Math.max(1, vals.length - 1)) * w, y = v => h - 3 - (v / max) * (h - 6);
-  const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, color + "55"); g.addColorStop(1, color + "00");
-  ctx.beginPath(); ctx.moveTo(0, h);
-  vals.forEach((v, i) => ctx.lineTo(x(i), y(v))); ctx.lineTo(w, h); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
-  ctx.beginPath(); vals.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
-  ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.shadowColor = color; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0;
-}
-
-/* ---------------- live flow: one dot = one real request ----------------
-   Dots are replayed in the real order and with the real spacing of the
-   server timestamps, all at the same speed, on a lane chosen by client IP.
-   A dot is neutral until the DETECT stage (that is where Sentinel learns
-   what it is), shows its real score at SCORE, and at DECISION is either
-   stopped (403) or continues to the app. Nothing here is random. */
-const LANES = 8;
-const flow = { parts: [], queue: [], fx: [], laneIP: Array(LANES).fill(""), laneUsed: Array(LANES).fill(0), staged: [0, 0, 0, 0], delivered: 0, stopped: 0 };
-// An active IP keeps its lane; a new IP takes the least recently used lane.
-function laneFor(ip, now) {
-  let i = flow.laneIP.indexOf(ip);
-  if (i < 0) {
-    // prefer a lane with nothing in flight, so a label never changes under a moving request
-    const busy = new Set(flow.parts.map(p => p.lane));
-    let best = -1;
-    for (let k = 0; k < LANES; k++) if (!busy.has(k) && (best < 0 || flow.laneUsed[k] < flow.laneUsed[best])) best = k;
-    if (best < 0) { best = 0; for (let k = 1; k < LANES; k++) if (flow.laneUsed[k] < flow.laneUsed[best]) best = k; }
-    i = best; flow.laneIP[i] = ip;
-  }
-  flow.laneUsed[i] = now; return i;
-}
-function hashIP(s) { let h = 2166136261; for (const c of (s || "")) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0; return h; }
-// One label per lane+slot: a newer request replaces the older label instead of overprinting it.
-function fxSet(key, f) { const i = flow.fx.findIndex(x => x.key === key); f.key = key; if (i >= 0) flow.fx[i] = f; else flow.fx.push(f); }
-function scheduleBatch(evs) {
-  if (!evs || !evs.length) return;
-  const base = Date.parse(evs[0].time), now = performance.now();
-  const lag = flow.queue.length ? Math.max(0, flow.queue[flow.queue.length - 1].at - now) : 0;
-  for (const ev of evs) flow.queue.push({ at: now + lag + Math.max(0, Date.parse(ev.time) - base), ev });
-  if (flow.queue.length > 600) flow.queue.splice(0, flow.queue.length - 600);
-}
-const STAGES = [["PARSE", "extract inputs"], ["DECODE", "normalize"], ["DETECT", "analysers + rules"], ["SCORE", "anomaly score"]];
-function flowGeom(w, h) {
-  const top = 46, bottom = h - 34, laneH = (bottom - top) / LANES;
-  const xc = 128, gate = w * 0.74, app = w - 62;
-  const st = [0, 1, 2, 3].map(i => xc + 90 + i * (gate - xc - 220) / 3);
-  return { top, bottom, laneH, xc, st, gate, app, laneY: i => top + (i + 0.5) * laneH };
-}
-function flowFrame(dt) {
-  const [ctx, w, h] = sizeCanvas($("flow")); const g = flowGeom(w, h); const now = performance.now();
-
-  while (flow.queue.length && flow.queue[0].at <= now) {
-    const { ev, at } = flow.queue.shift(); const lane = laneFor(ev.ip, at);
-    const outcome = ev.action === "allowed" ? "ok" : ev.action === "flagged" ? "flag" : "block";
-    flow.parts.push({ ev, lane, born: at, x: g.xc, outcome, col: "#e7ecf7", stage: -1 });
-  }
-  ctx.clearRect(0, 0, w, h);
-
-  // ---- static layout ----
-  ctx.textAlign = "center";
-  ctx.font = "700 10.5px Inter, system-ui"; ctx.fillStyle = "#8a96b3"; ctx.fillText("CLIENTS", g.xc - 50, 20);
-  ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("lane = client IP", g.xc - 50, 33);
-  STAGES.forEach(([name, sub], i) => {
-    const x = g.st[i];
-    ctx.fillStyle = "rgba(34,211,238,.045)"; ctx.strokeStyle = "rgba(34,211,238,.20)"; ctx.lineWidth = 1;
-    roundRect(ctx, x - 30, g.top - 10, 60, g.bottom - g.top + 20, 8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#22d3ee"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText(name, x, 20);
-    ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText(sub, x, 33);
-    ctx.fillStyle = "#8a96b3"; ctx.font = "600 11px Inter, system-ui"; const T = flow.tot || {}; ctx.fillText(i === 2 ? fmt(T.withFindings || 0) + " hit" : fmt(T.inspected || 0), x, h - 12);
-  });
-  const gg = ctx.createLinearGradient(0, g.top, 0, g.bottom);
-  gg.addColorStop(0, "rgba(251,59,92,.15)"); gg.addColorStop(.5, "rgba(251,59,92,.6)"); gg.addColorStop(1, "rgba(251,59,92,.15)");
-  ctx.fillStyle = gg; ctx.fillRect(g.gate - 2, g.top - 10, 4, g.bottom - g.top + 20);
-  ctx.fillStyle = "#fb3b5c"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText("DECISION", g.gate, 20);
-  ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("403 if score ≥ threshold", g.gate, 33);
-  ctx.fillStyle = "#fb3b5c"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt((flow.tot || {}).blocked || 0) + " blocked", g.gate, h - 12);
-  ctx.fillStyle = "rgba(52,211,153,.06)"; ctx.strokeStyle = "rgba(52,211,153,.35)";
-  roundRect(ctx, g.app - 28, g.top - 10, 56, g.bottom - g.top + 20, 8); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = "#34d399"; ctx.font = "800 10.5px Inter, system-ui"; ctx.fillText("YOUR APP", g.app, 20);
-  ctx.fillStyle = "#55607a"; ctx.font = "10px Inter, system-ui"; ctx.fillText("upstream", g.app, 33);
-  ctx.fillStyle = "#34d399"; ctx.font = "600 11px Inter, system-ui"; ctx.fillText(fmt((flow.tot || {}).allowed || 0) + " delivered", g.app, h - 12);
-  for (let i = 0; i < LANES; i++) {
-    const y = g.laneY(i);
-    ctx.strokeStyle = "rgba(120,150,220,.10)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(g.xc, y); ctx.lineTo(g.app - 28, y); ctx.stroke();
-    ctx.fillStyle = flow.laneIP[i] ? "#60a5fa" : "#2a3247"; ctx.beginPath(); ctx.arc(g.xc, y, 3.5, 0, 7); ctx.fill();
-    ctx.textAlign = "right"; ctx.font = "11px 'JetBrains Mono', Consolas, monospace"; ctx.fillStyle = "#8a96b3";
-    ctx.fillText(flow.laneIP[i] || "—", g.xc - 12, y + 4); ctx.textAlign = "center";
-  }
-
-  // ---- requests: position = time since the request arrived x fixed speed (2 s client -> decision) ----
-  const speed = (g.gate - g.xc) / 2.0;
-  for (let i = flow.parts.length - 1; i >= 0; i--) {
-    const p = flow.parts[i], y = g.laneY(p.lane);
-    p.x = g.xc + speed * Math.max(0, now - p.born) / 1000;
-    while (p.stage < 3 && p.x >= g.st[p.stage + 1]) {
-      p.stage++; flow.staged[p.stage]++;
-      if (p.stage === 2 && (p.ev.categories || []).length) {
-        p.col = catColor(p.ev.categories[0]);
-        fxSet(p.lane + ":det", { kind: "tag", x: g.st[2] + 8, y: y - 9, text: p.ev.categories.join(" + "), c: p.col, life: 1.4 });
-      }
-      if (p.stage === 3 && p.ev.score)
-        fxSet(p.lane + ":score", { kind: "tag", x: g.st[3] + 8, y: y - 9, text: "score " + p.ev.score, c: p.outcome === "block" ? "#fb3b5c" : "#fbbf24", life: 1.4 });
-    }
-    if (p.outcome === "block" && p.x >= g.gate - 6) {
-      flow.stopped++;
-      fxSet(p.lane + ":gring", { kind: "ring", x: g.gate, y, c: "#fb3b5c", life: 1 });
-      const why = ((p.ev.categories || [])[0] || p.ev.action).toUpperCase();
-      fxSet(p.lane + ":gate", { kind: "tag", x: g.gate + 10, y: y + 4, text: "403 " + why + "  " + p.ev.ip, c: "#fb3b5c", life: 1.6 });
-      flow.parts.splice(i, 1); continue;
-    }
-    if (p.x >= g.gate && !p.passed) { p.passed = true; p.col = p.outcome === "flag" ? "#fbbf24" : "#34d399"; }
-    if (p.x >= g.app - 28) {
-      flow.delivered++; fxSet(p.lane + ":app", { kind: "ring", x: g.app - 28, y, c: "#34d399", life: 1 });
-      flow.parts.splice(i, 1); continue;
-    }
-    const grad = ctx.createLinearGradient(p.x - 22, 0, p.x, 0); grad.addColorStop(0, p.col + "00"); grad.addColorStop(1, p.col + "aa");
-    ctx.strokeStyle = grad; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p.x - 22, y); ctx.lineTo(p.x, y); ctx.stroke();
-    ctx.fillStyle = p.col; ctx.shadowColor = p.col; ctx.shadowBlur = 10; ctx.beginPath(); ctx.arc(p.x, y, 3.4, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
-  }
-
-  // ---- effects: fixed positions, fade only ----
-  ctx.textAlign = "left"; ctx.font = "700 10.5px Inter, system-ui";
-  for (let i = flow.fx.length - 1; i >= 0; i--) {
-    const f = flow.fx[i]; f.life -= dt; if (f.life <= 0) { flow.fx.splice(i, 1); continue; }
-    ctx.globalAlpha = Math.min(1, f.life);
-    if (f.kind === "ring") { ctx.strokeStyle = f.c; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(f.x, f.y, 5 + (1 - f.life) * 12, 0, 7); ctx.stroke(); }
-    else { ctx.fillStyle = f.c; ctx.fillText(f.text, f.x, f.y); }
-  }
-  ctx.globalAlpha = 1;
-  if (flow.fx.length > 300) flow.fx.splice(0, flow.fx.length - 300);
-}
-function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
-
-/* ---------------- throughput chart ---------------- */
-const tp = { series: [], drawn: null, hover: -1 };
-$("tp").addEventListener("mousemove", e => { const r = e.target.getBoundingClientRect(); tp.hover = (e.clientX - r.left) / r.width; });
-$("tp").addEventListener("mouseleave", () => tp.hover = -1);
-function tpFrame() {
-  const [ctx, w, h] = sizeCanvas($("tp"));
-  ctx.clearRect(0, 0, w, h);
-  const s = tp.series; if (!s.length) return;
-  if (!tp.drawn || tp.drawn.length !== s.length) tp.drawn = s.map(p => ({ a: p.a, f: p.f, b: p.b }));
-  tp.drawn.forEach((d, i) => { d.a += (s[i].a - d.a) * .15; d.f += (s[i].f - d.f) * .15; d.b += (s[i].b - d.b) * .15; });
-  const L = 40, R = 10, T = 10, B = 22, W = w - L - R, H = h - T - B;
-  const max = Math.max(4, ...s.map(p => p.a + p.f + p.b)) * 1.15;
-  const X = i => L + (i / (s.length - 1)) * W, Y = v => T + H - (v / max) * H;
-  ctx.font = "11px Inter, system-ui"; ctx.fillStyle = "#55607a"; ctx.strokeStyle = "rgba(120,150,220,.08)";
-  for (let k = 0; k <= 4; k++) { const v = max * k / 4, y = Y(v); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(w - R, y); ctx.stroke(); ctx.fillText(fmt(v), 4, y + 4); }
-  [120, 90, 60, 30, 0].forEach(sec => { const i = s.length - 1 - sec; if (i >= 0) ctx.fillText(sec ? `-${sec}s` : "now", X(i) - (sec ? 12 : 10), h - 5); });
-  const layers = [["a", "#34d399"], ["f", "#fbbf24"], ["b", "#fb3b5c"]];
-  let base = tp.drawn.map(() => 0);
-  for (const [key, col] of layers) {
-    const top = tp.drawn.map((d, i) => base[i] + d[key]);
-    const g = ctx.createLinearGradient(0, T, 0, T + H); g.addColorStop(0, col + "66"); g.addColorStop(1, col + "08");
-    ctx.beginPath(); smooth(ctx, top.map((v, i) => [X(i), Y(v)]));
-    for (let i = base.length - 1; i >= 0; i--) ctx.lineTo(X(i), Y(base[i]));
-    ctx.closePath(); ctx.fillStyle = g; ctx.fill();
-    ctx.beginPath(); smooth(ctx, top.map((v, i) => [X(i), Y(v)])); ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
-    base = top;
-  }
-  if (tp.hover >= 0) {
-    const i = Math.max(0, Math.min(s.length - 1, Math.round(((tp.hover * w) - L) / W * (s.length - 1))));
-    const x = X(i), p = s[i];
-    ctx.strokeStyle = "rgba(231,236,247,.35)"; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + H); ctx.stroke(); ctx.setLineDash([]);
-    const lines = [`${new Date(p.t * 1000).toLocaleTimeString()}`, `allowed ${p.a}`, `flagged ${p.f}`, `blocked ${p.b}`];
-    const bw = 120, bh = 74, bx = Math.min(w - bw - 6, x + 10), by = T + 6;
-    ctx.fillStyle = "rgba(10,15,28,.92)"; ctx.strokeStyle = "rgba(120,150,220,.25)"; roundRect(ctx, bx, by, bw, bh, 8); ctx.fill(); ctx.stroke();
-    const cols = ["#e7ecf7", "#34d399", "#fbbf24", "#fb3b5c"];
-    lines.forEach((t, k) => { ctx.fillStyle = cols[k]; ctx.fillText(t, bx + 10, by + 18 + k * 16); });
-  }
-}
-function smooth(ctx, pts) {
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], mx = (x0 + x1) / 2; ctx.bezierCurveTo(mx, y0, mx, y1, x1, y1); }
+function hist(s){
+  const el=$("hist"),h=s.histogram||[],bk=s.histogram_buckets_us||[];
+  const W=el.clientWidth||340,H=150,m={l:8,r:8,t:8,b:30};const iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const total=h.reduce((a,b)=>a+b,0),max=Math.max(1,...h);const n=h.length||1,bw=iw/n;
+  let svg="";
+  h.forEach((v,i)=>{const bh=v/max*ih;const x=m.l+i*bw+1,y=m.t+ih-bh;
+    svg+=`<rect x="${x}" y="${y}" width="${Math.max(1,bw-2)}" height="${Math.max(v?2:0,bh)}" rx="2" fill="${css("--bar")}"/>`;
+    svg+=`<rect x="${m.l+i*bw}" y="${m.t}" width="${bw}" height="${ih}" fill="transparent" data-i="${i}" class="hh"/>`;});
+  [0,Math.floor(n/2),n-1].forEach(i=>{if(i<0||i>=n)return;const lab=i<bk.length?"≤"+us(bk[i]):">"+us(bk[bk.length-1]);svg+=`<text x="${m.l+i*bw+bw/2}" y="${H-12}" text-anchor="middle" font-size="10.5" fill="${css("--text-muted")}">${lab}</text>`});
+  el.innerHTML=total?`<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Histogram of per-request inspection latency">${svg}</svg><div class="tip" id="htip"></div>`:`<div class="empty">No requests inspected yet</div>`;
+  $("latKv").innerHTML=`<dt>Mean (all time)</dt><dd class="num">${us(s.avg_inspect_us)}</dd><dt>p50 / p99 (bucket bound)</dt><dd class="num">≤${us(s.p50_inspect_us_le)} / ≤${us(s.p99_inspect_us_le)}</dd><dt>Samples</dt><dd class="num">${fmt(total)}</dd>`;
+  const tip=el.querySelector("#htip");if(!tip)return;
+  el.querySelectorAll(".hh").forEach(r=>{r.onmousemove=e=>{const i=+r.dataset.i;const lo=i?us(bk[i-1]):"0",hi=i<bk.length?us(bk[i]):"∞";
+    tip.innerHTML=`<div class="t">${lo} – ${hi}</div><div class="row"><span>Requests</span><b class="num">${fmt(h[i])}</b></div><div class="row"><span>Share</span><b class="num">${pct(h[i],total)}</b></div>`;
+    tip.style.display="block";const b=el.getBoundingClientRect();tip.style.left=Math.min(e.clientX-b.left+10,el.clientWidth-tip.offsetWidth)+"px";tip.style.top="4px"};
+    r.onmouseleave=()=>tip.style.display="none"});
 }
 
-/* ---------------- donut ---------------- */
-const donut = { segs: [], anim: 0 };
-function donutFrame(dt) {
-  const [ctx, w, h] = sizeCanvas($("donut"));
-  ctx.clearRect(0, 0, w, h);
-  donut.anim = Math.min(1, donut.anim + dt * 1.2);
-  const cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 12, total = donut.segs.reduce((a, s) => a + s.v, 0);
-  ctx.lineWidth = 16; ctx.strokeStyle = "rgba(120,150,220,.08)"; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke();
-  let a = -Math.PI / 2; const sweep = Math.PI * 2 * easeOut(donut.anim);
-  for (const s of donut.segs) {
-    const da = total ? (s.v / total) * sweep : 0;
-    ctx.strokeStyle = s.c; ctx.shadowColor = s.c; ctx.shadowBlur = 12; ctx.lineCap = "butt";
-    ctx.beginPath(); ctx.arc(cx, cy, r, a + 0.02, a + Math.max(0.02, da - 0.02)); ctx.stroke(); a += da;
-  }
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#e7ecf7"; ctx.textAlign = "center"; ctx.font = "800 26px Inter, system-ui"; ctx.fillText(fmt(total), cx, cy + 6);
-  ctx.font = "600 10.5px Inter, system-ui"; ctx.fillStyle = "#8a96b3"; ctx.fillText("THREATS", cx, cy + 24); ctx.textAlign = "left";
+function bars(id,rows){
+  rows.sort((a,b)=>b.v-a.v||String(a.k).localeCompare(b.k));
+  const max=Math.max(1,...rows.map(r=>r.v));
+  $(id).innerHTML=rows.length?rows.slice(0,8).map(r=>`<div class="row" title="${esc(r.k)}: ${r.v}"><span class="lab">${esc(r.k)}</span><span class="track"><span class="fill" style="width:${(100*r.v/max).toFixed(1)}%"></span></span><span class="n num">${fmt(r.v)}</span></div>`).join(""):`<div class="empty">No findings yet</div>`;
 }
-const easeOut = t => 1 - Math.pow(1 - t, 3);
 
-/* ---------------- render data ---------------- */
-let since = 0, first = true, lastBlocked = 0;
-const hist = { rps: [], blk: [], ok: [], flg: [], lat: [], ips: [] };
-const seenThreats = new Set(); const openIds = new Set();
+function badge(a){const ic={blocked:"✕",flagged:"!",allowed:"✓","rate-limited":"⧗","too-large":"⇥"}[a]||"·";const cls=a==="blocked"?"blocked":a==="flagged"?"flagged":a==="allowed"?"allowed":"neutral";return `<span class="badge ${cls}">${ic} ${esc(a)}</span>`}
 
-function render(d) {
-  const s = d.stats;
-  const st = $("status");
-  st.className = "status" + (d.mode === "monitor" ? " monitor" : "");
-  st.querySelector("span").textContent = d.mode === "monitor" ? "MONITORING" : "PROTECTING";
-  $("up").textContent = d.upstream; $("thr").textContent = d.threshold; $("pl").textContent = d.paranoia; $("rules").textContent = d.rules;
-  const up = s.uptime_seconds; $("uptime").textContent = `${Math.floor(up / 3600)}h ${String(Math.floor(up % 3600 / 60)).padStart(2, "0")}m ${String(up % 60).padStart(2, "0")}s`;
-
-  const ser = s.series || []; tp.series = ser;
-  const full = ser.slice(-6, -1); // last 5 complete seconds
-  const rps = full.length ? full.reduce((t, p) => t + p.a + p.b + p.f, 0) / full.length : 0;
-  setNum("k-rps", rps, v => v.toFixed(1)); $("k-req").textContent = fmt(s.requests) + " total";
-  const blockedAll = s.blocked + s.rate_limited + s.too_large;
-  setNum("k-blk", blockedAll); $("k-blkr").textContent = (s.requests ? (100 * blockedAll / s.requests).toFixed(1) : "0") + "% of traffic";
-  const allowed = Math.max(0, s.requests - blockedAll); // delivered to the app (includes flagged)
-  setNum("k-ok", allowed); $("k-okr").textContent = (s.requests ? (100 * allowed / s.requests).toFixed(1) : "0") + "% delivered";
-  setNum("k-flg", s.flagged);
-  const rl = s.recent_latency || {};
-  setNum("k-lat", rl.p50_us || 0, v => Math.round(v), "<small>µs</small>"); $("k-p99").textContent = "p99 " + fmtUs(rl.p99_us || 0) + " · last " + fmt(rl.samples || 0);
-  const ncat = Object.keys(s.categories || {}).length;
-  setNum("k-ips", s.unique_attackers || 0); $("k-cats").textContent = ncat + " attack classes seen";
-  if (blockedAll > lastBlocked && !first) { const k = $("kpi-blk"); k.classList.remove("flash"); void k.offsetWidth; k.classList.add("flash"); }
-  lastBlocked = blockedAll;
-
-  const tail = ser.slice(-40);
-  spark("s-rps", tail.map(p => p.a + p.b + p.f), "#22d3ee");
-  spark("s-blk", tail.map(p => p.b), "#fb3b5c");
-  spark("s-ok", tail.map(p => p.a), "#34d399");
-  spark("s-flg", tail.map(p => p.f), "#fbbf24");
-  hist.lat.push(rl.p50_us || 0); if (hist.lat.length > 40) hist.lat.shift(); spark("s-lat", hist.lat, "#a78bfa");
-  hist.ips.push(s.unique_attackers || 0); if (hist.ips.length > 40) hist.ips.shift(); spark("s-ips", hist.ips, "#60a5fa");
-
-  // flow
-  if (!first) scheduleBatch(s.events);
-  flow.tot = { inspected: s.requests, withFindings: s.blocked + s.flagged, blocked: blockedAll, allowed: Math.max(0, s.requests - blockedAll) };
-
-  // donut + legend
-  const cats = Object.entries(s.categories || {}).sort((a, b) => b[1] - a[1]);
-  const total = cats.reduce((a, c) => a + c[1], 0);
-  const sig = cats.map(c => c.join(":")).join(",");
-  if (sig !== donut.sig) { donut.sig = sig; donut.segs = cats.map(([k, v]) => ({ k, v, c: catColor(k) })); if (first) donut.anim = 0; }
-  $("cat-total").textContent = total ? fmt(total) + " detections" : "";
-  $("cats").innerHTML = cats.length ? cats.slice(0, 9).map(([k, v]) =>
-    `<div class="cat" style="--c:${catColor(k)}"><i></i><span>${esc(k)}</span><span class="n num">${fmt(v)}</span><span class="p num">${(100 * v / total).toFixed(0)}%</span></div>`).join("")
-    : '<div class="empty">No attacks yet</div>';
-
-  // histogram
-  const hb = s.histogram || [], bk = s.histogram_buckets_us || [];
-  const hmax = Math.max(1, ...hb);
-  const labels = bk.map((b, i) => "≤" + (b >= 1000 ? b / 1000 + "ms" : b + "µs")).concat([">" + (bk[bk.length - 1] / 1000) + "ms"]);
-  const H = $("hist");
-  if (H.children.length !== hb.length) H.innerHTML = hb.map((_, i) => `<div class="b"><div class="cnt num"></div><div class="bar"></div><div class="lbl">${labels[i]}</div></div>`).join("");
-  hb.forEach((v, i) => { const b = H.children[i]; b.querySelector(".bar").style.height = Math.max(2, 128 * v / hmax) + "px"; b.querySelector(".cnt").textContent = v ? fmt(v) : ""; });
-  $("l-avg").textContent = fmtUs(rl.mean_us || 0); $("l-p50").textContent = fmtUs(rl.p50_us || 0); $("l-p99").textContent = fmtUs(rl.p99_us || 0); $("l-max").textContent = fmtUs(rl.max_us || 0); $("l-n").textContent = fmt(rl.samples || 0);
-
-  // threat feed
-  const feed = $("feed"); const th = s.threats || [];
-  if (first && /expand/.test(location.search)) { const t0 = th[0]; if (t0) openIds.add(t0.id); }
-  if (th.length) {
-    const html = th.slice(0, 40).map(e => {
-      const isNew = !seenThreats.has(e.id) && !first;
-      const sev = e.action === "blocked" ? sevColor(e.score) : e.action === "flagged" ? "#fbbf24" : "#60a5fa";
-      const tags = (e.categories || []).map(c => `<span class="tag" style="--c:${catColor(c)}">${esc(c)}</span>`).join("");
-      const rows = (e.findings || []).map(f => `<tr><td class="mono">#${f.rule}</td><td>${esc(f.msg)}</td><td class="loc mono">${esc(f.loc)}${f.name ? ":" + esc(f.name) : ""}</td><td class="num">+${f.score}</td></tr>`).join("");
-      return `<div class="ev${isNew ? " new" : ""}${openIds.has(e.id) ? " open" : ""}" data-id="${esc(e.id)}" style="--sev:${sev}">
-        <div class="top"><span class="badge ${esc(e.action)}">${esc(e.action)}</span><span class="meth mono">${esc(e.method)}</span>
-        <span class="path mono" title="${esc(e.path)}">${esc(decodeSafe(e.path))}</span><span class="score num">${e.score || ""}</span></div>
-        <div class="meta">${tags}<span>${esc(e.message || "")}</span><span style="margin-left:auto" class="mono">${esc(e.ip)} · ${new Date(e.time).toLocaleTimeString()}</span></div>
-        <div class="det">${rows ? `<table>${rows}</table>` : '<span class="empty">no findings</span>'}<div class="mono" style="color:var(--faint);font-size:11px;margin-top:6px">request id ${esc(e.id)} · inspected in ${e.us} µs</div></div></div>`;
-    }).join("");
-    feed.innerHTML = html;
-    th.forEach(e => seenThreats.add(e.id));
-    setTimeout(() => feed.querySelectorAll(".ev.new").forEach(n => n.classList.remove("new")), 1800);
-  }
-
-  // top rules / ips / locations
-  const tr = s.top_rules || [], rmax = Math.max(1, ...tr.map(r => r.count));
-  barList("rules-top", tr.map(r => ({ key: r.key, html: `<span class="id mono">#${esc(r.key)}</span><span class="name">${esc(r.name)}</span><span class="num">${fmt(r.count)}</span>`, w: r.count / rmax })), "#22d3ee", "#a78bfa");
-  const ti = s.top_ips || [], imax = Math.max(1, ...ti.map(r => r.count));
-  barList("ips-top", ti.map(r => ({ key: r.key, html: `<span class="ip mono" style="--c:${hashColor(r.key)}"><i></i>${esc(r.key)}</span><span></span><span class="num">${fmt(r.count)} hits</span>`, w: r.count / imax })), "#fb3b5c", "#fbbf24");
-  const lo = s.locations || [];
-  $("locs").innerHTML = lo.length ? lo.map(l => `<span class="tag" style="--c:${hashColor(l.key)}">${esc(l.key)} · ${fmt(l.count)}</span>`).join("") : '<div class="empty">–</div>';
-  first = false;
+function threatsTable(list){
+  threats=list;
+  if(!list.length){$("threats").innerHTML=`<div class="empty">No threats recorded. Send traffic through the proxy port.</div>`;return}
+  $("threats").innerHTML=`<table><thead><tr><th>Time</th><th>Source</th><th>Request</th><th>Classes</th><th class="r">Score</th><th>Action</th></tr></thead><tbody>${list.slice(0,25).map((e,i)=>`<tr class="click${selected===e.id?" sel":""}" tabindex="0" data-i="${i}"><td class="mono">${new Date(e.time).toLocaleTimeString([],{hour12:false})}</td><td class="mono">${esc(e.ip)}</td><td class="mono wrap">${esc(e.method)} ${esc(e.path)}</td><td>${(e.categories||[]).map(esc).join(", ")}</td><td class="r num">${e.score}</td><td>${badge(e.action)}</td></tr>`).join("")}</tbody></table>`;
+  $("threats").querySelectorAll("tr.click").forEach(tr=>{const go=()=>{selected=threats[+tr.dataset.i].id;threatsTable(threats)};tr.onclick=go;tr.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}}});
+  if(selected){const e=list.find(x=>x.id===selected);if(e)detail(e)}
 }
-function decodeSafe(p) { try { return decodeURIComponent(p.replace(/\+/g, " ")); } catch { return p; } }
-function barList(id, items, c1, c2) {
-  const el = $(id);
-  if (!items.length) { el.innerHTML = '<div class="empty">–</div>'; return; }
-  const keys = items.map(i => i.key).join("|");
-  if (el.dataset.keys !== keys) {
-    el.dataset.keys = keys;
-    el.innerHTML = items.map(i => `<div class="brow">${i.html}<div class="track"><div class="fill" style="--c1:${c1};--c2:${c2}"></div></div></div>`).join("");
-  } else items.forEach((i, k) => { const row = el.children[k]; const n = row.children[2]; const tmp = document.createElement("div"); tmp.innerHTML = i.html; n.textContent = tmp.children[2].textContent; });
-  requestAnimationFrame(() => items.forEach((i, k) => el.children[k].querySelector(".fill").style.width = (6 + 94 * i.w) + "%"));
-}
-$("feed").addEventListener("click", e => {
-  const ev = e.target.closest(".ev"); if (!ev) return;
-  ev.classList.toggle("open"); const id = ev.dataset.id; ev.classList.contains("open") ? openIds.add(id) : openIds.delete(id);
-});
 
-/* ---------------- loop ---------------- */
-async function poll() {
-  try {
-    const r = await fetch(`/stats?since=${since}&window=120`, { cache: "no-store" });
-    const d = await r.json();
-    since = d.stats.seq; render(d);
-  } catch (e) {
-    const st = $("status"); st.className = "status off"; st.querySelector("span").textContent = "DISCONNECTED";
-  } finally { setTimeout(poll, 1000); }
+function detail(e){
+  const ev=last?.evidence||{};
+  const fs=(e.findings||[]).slice().sort((a,b)=>b.score-a.score);
+  $("detail").innerHTML=`<dl class="kv"><dt>Request ID</dt><dd class="mono">${esc(e.id)}</dd><dt>Time</dt><dd>${new Date(e.time).toLocaleString()}</dd><dt>Source</dt><dd class="mono">${esc(e.ip)}</dd><dt>Verdict</dt><dd>${badge(e.action)} score <b class="num">${e.score}</b> / threshold <b class="num">${last?.threshold}</b></dd><dt>Inspection time</dt><dd class="num">${us(e.us)}</dd></dl>
+  <div class="detail"><h3 class="mono wrap">${esc(e.method)} ${esc(e.path)}</h3>
+  <table><thead><tr><th>Rule</th><th>Where</th><th class="r">Score</th></tr></thead><tbody>${fs.map(f=>`<tr><td><span class="mono">${f.rule}</span> <span class="tag">${esc(f.cat)}</span><div class="wrap" style="color:var(--text-secondary)">${esc(f.msg)}</div></td><td class="mono wrap">${esc(f.loc)}${f.name?" · "+esc(f.name):""}</td><td class="r num">${f.score}</td></tr>`).join("")}</tbody></table>
+  <p style="margin:10px 0 0">${ev.enabled?`<a href="/incident?id=${encodeURIComponent(e.id)}" target="_blank" rel="noopener">Open the analyst's incident report ↗</a> <span style="color:var(--text-muted)">technique, CWE / CAPEC / ATT&amp;CK, raw request, evidence hashes</span>`:`<span style="color:var(--text-muted)">Start with -evidence file.jsonl to capture evidence and get an analyst report per incident.</span>`}</p></div>`;
 }
-let lastT = performance.now();
-function frame(now) {
-  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
-  stepNums(dt); flowFrame(dt); tpFrame(); donutFrame(dt);
-  requestAnimationFrame(frame);
+
+function pdiff(s){
+  const n=(s.categories||{})["parser-differential"]||0;
+  const rules=(s.top_rules||[]).filter(r=>r.key.startsWith("7"));
+  $("pdiff").innerHTML=`<p style="margin:0 0 8px;color:var(--text-secondary)">Each body is read by Go's own parsers, a strict reading and the lenient behaviours other frameworks have. Every value is inspected; requests whose meaning depends on which parser reads them are scored.</p>
+  <dl class="kv"><dt>Parser-differential findings</dt><dd class="num">${fmt(n)}</dd></dl>`+
+  (rules.length?`<table style="margin-top:8px"><thead><tr><th>Rule</th><th>Disagreement</th><th class="r">Hits</th></tr></thead><tbody>${rules.map(r=>`<tr><td class="mono">${esc(r.key)}</td><td>${esc(r.name)}</td><td class="r num">${fmt(r.count)}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">No parser disagreements in the top rules yet</div>`);
 }
-poll(); requestAnimationFrame(frame);
+
+function sys(d){
+  const y=d.system||{};
+  $("sys").innerHTML=`<dt>Engine</dt><dd class="mono">${esc(y.version)}</dd><dt>Runtime</dt><dd class="mono">${esc(y.go)} · ${esc(y.os)} · ${y.cpus} CPU</dd>
+  <dt>Rules loaded</dt><dd class="num">${fmt(d.rules)} rule-file rules + built-in analysers</dd>
+  <dt>Heap in use / reserved</dt><dd class="num">${bytes(y.heap_bytes)} / ${bytes(y.sys_bytes)}</dd><dt>Goroutines</dt><dd class="num">${fmt(y.goroutines)}</dd>
+  <dt>GC cycles · last pause</dt><dd class="num">${fmt(y.gc_cycles)} · ${us((y.gc_pause_last_ns||0)/1000)}</dd>
+  <dt>Started</dt><dd>${y.started?new Date(y.started).toLocaleString():"–"}</dd>
+  <dt>Evidence last verified</dt><dd>${d.evidence?.enabled?new Date(d.evidence.checked).toLocaleTimeString():"off"}</dd>`;
+}
+addEventListener("resize",()=>{if(last)render(last)});
+poll();
 </script>
 </body>
 </html>

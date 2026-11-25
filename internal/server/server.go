@@ -14,8 +14,11 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Ashel7577/sentinel-waf/internal/analyst"
@@ -48,6 +51,10 @@ type Server struct {
 	limiter *RateLimiter
 	Metrics *Metrics
 	log     *slog.Logger
+
+	evMu  sync.Mutex
+	evAt  time.Time
+	evRep evidence.Report
 }
 
 // New builds the proxy.
@@ -217,6 +224,27 @@ func (s *Server) clientIP(r *http.Request) string {
 //go:embed dashboard.html
 var dashboardHTML []byte
 
+// evidenceStatus re-verifies the evidence chain at most every 5 s.
+func (s *Server) evidenceStatus() map[string]any {
+	if s.opts.EvidencePath == "" {
+		return map[string]any{"enabled": false}
+	}
+	s.evMu.Lock()
+	defer s.evMu.Unlock()
+	if time.Since(s.evAt) > 5*time.Second || s.evRep.Records == 0 && !s.evRep.OK {
+		if recs, err := evidence.ReadFile(s.opts.EvidencePath); err == nil {
+			s.evRep = evidence.Verify(recs)
+		} else if os.IsNotExist(err) {
+			s.evRep = evidence.Report{OK: true}
+		} else {
+			s.evRep = evidence.Report{Problem: err.Error()}
+		}
+		s.evAt = time.Now()
+	}
+	return map[string]any{"enabled": true, "ok": s.evRep.OK, "records": s.evRep.Records, "head": s.evRep.HeadHash,
+		"bad_seq": s.evRep.BadSeq, "problem": s.evRep.Problem, "checked": s.evAt.UTC()}
+}
+
 // AdminHandler serves the dashboard, stats and Prometheus metrics. Bind it to
 // localhost only.
 func (s *Server) AdminHandler() http.Handler {
@@ -234,10 +262,19 @@ func (s *Server) AdminHandler() http.Handler {
 		secs, _ := strconv.Atoi(r.URL.Query().Get("window"))
 		st := s.Metrics.snapshot(since, secs)
 		w.Header().Set("Cache-Control", "no-store")
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"stats": st, "mode": map[bool]string{true: "monitor", false: "block"}[s.opts.Monitor],
 			"threshold": s.engine.Config().Threshold, "paranoia": s.engine.Config().Paranoia,
 			"rules": s.engine.RuleCount(), "upstream": s.opts.Upstream.String(),
+			"system": map[string]any{
+				"version": waf.Version, "go": runtime.Version(), "os": runtime.GOOS + "/" + runtime.GOARCH,
+				"cpus": runtime.NumCPU(), "goroutines": runtime.NumGoroutine(),
+				"heap_bytes": ms.HeapAlloc, "sys_bytes": ms.Sys, "gc_cycles": ms.NumGC,
+				"gc_pause_last_ns": ms.PauseNs[(ms.NumGC+255)%256], "started": s.Metrics.start.UTC(),
+			},
+			"evidence": s.evidenceStatus(),
 		})
 	})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -300,6 +337,22 @@ func (s *Server) AdminHandler() http.Handler {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 		io.WriteString(w, md)
 	}
+	mux.HandleFunc("/incident", func(w http.ResponseWriter, r *http.Request) {
+		recs, rep, ok := load(w)
+		if !ok {
+			return
+		}
+		id := r.URL.Query().Get("id")
+		for _, rec := range recs {
+			if rec.RequestID == id {
+				md := analyst.Markdown(analyst.Analyse([]*evidence.Record{rec}, nil), rep, "Incident "+id, "")
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				io.WriteString(w, analyst.HTML(md))
+				return
+			}
+		}
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no evidence record for that request id"})
+	})
 	mux.HandleFunc("/report", func(w http.ResponseWriter, r *http.Request) { report(w, r, true) })
 	mux.HandleFunc("/report.md", func(w http.ResponseWriter, r *http.Request) { report(w, r, false) })
 	return mux
