@@ -41,9 +41,11 @@ var (
 )
 
 var (
-	reBinPath  = regexp.MustCompile(`(?:^|[\s;&|` + "`" + `(=])/(?:usr/)?(?:local/)?s?bin/[a-z]`)
-	reIFS      = regexp.MustCompile(`\$\{?ifs\}?|\$\{(?:path|home|shell):`)
-	reRevShell = regexp.MustCompile(`/dev/(?:tcp|udp)/|\bnc(?:at)?\s+(?:-[a-z]*\s+)*-[a-z]*e\b|\bbash\s+-i\b|\bsh\s+-i\b|\bmkfifo\b|\bsocat\s+(?:tcp|exec)`)
+	reBinPath = regexp.MustCompile(`(?:^|[\s;&|` + "`" + `(=])/(?:usr/)?(?:local/)?s?bin/[a-z]`)
+	reIFS     = regexp.MustCompile(`\$\{?ifs\}?|\$\{(?:path|home|shell):`)
+	// nc/ncat -e runs a program on connect; host and port usually come first
+	// ("nc attacker 4444 -e /bin/sh"), so allow arguments before the flag.
+	reRevShell = regexp.MustCompile(`(?i)/dev/(?:tcp|udp)/|\bnc(?:at)?\b[^;|&\n]{0,80}?\s-[a-z]*e\b|\bbash\s+-i\b|\bsh\s+-i\b|\bmkfifo\b|\bsocat\s+(?:tcp|exec)`)
 	reSubst    = regexp.MustCompile(`\$\([^)]{1,200}\)|` + "`" + `[^` + "`" + `]{1,200}` + "`")
 	reArith    = regexp.MustCompile(`\$\(\(\s*[\w$]+\s*[-+*/%^]\s*[\w$]+\s*\)\)|\$\[\s*\d+\s*[-+*/]\s*\d+\s*\]`)
 	reIfTest   = regexp.MustCompile(`\bif\s+\[\s+[^\]]*\s-(?:ne|eq|gt|lt|ge|le)\s|\$\{#\w+\}`)
@@ -102,8 +104,8 @@ func CmdI(s string) []Hit {
 	if strings.Contains(s, "bin/") && reBinPath.MatchString(s) {
 		hs.add(3005, "cmdi", Error, 1, "absolute path to a system binary")
 	}
-	if (strings.Contains(s, "/dev/") || strings.Contains(s, "nc") || strings.Contains(s, "sh -i") ||
-		strings.Contains(s, "mkfifo") || strings.Contains(s, "socat")) && reRevShell.MatchString(s) {
+	if ls := strings.ToLower(s); (strings.Contains(ls, "/dev/") || strings.Contains(ls, "nc") || strings.Contains(ls, "sh -i") ||
+		strings.Contains(ls, "mkfifo") || strings.Contains(ls, "socat")) && reRevShell.MatchString(s) {
 		hs.add(3004, "cmdi", Critical, 1, "reverse shell pattern")
 	}
 	if !strings.ContainsAny(s, ";&|`\n$") {

