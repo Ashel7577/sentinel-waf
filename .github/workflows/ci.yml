@@ -81,6 +81,36 @@ jobs:
           name: attacklab-evidence-pack
           path: lab-out/
 
+  autoeval:
+    # Autonomous evaluation: adaptive evasion search against the engine with a
+    # backend oracle. Fails the build if it finds any confirmed bypass.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: autonomous evaluation (regression gate)
+        run: go run ./cmd/sentinel-autoeval -out autoeval-out -label "CI ${GITHUB_SHA::7}" -fail-on-bypass
+      - name: summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          r = json.load(open("autoeval-out/report.json"))
+          l = r["inspection_latency_ns"]
+          print("## Autonomous evaluation")
+          print(f"- attacks evaluated: {r['trials']}, reached the app: {r['landed_attacks']}")
+          print(f"- detection: {100*r['blocked_of_landed']/max(1,r['landed_attacks']):.1f}%, confirmed bypasses: {len(r['bypasses'] or [])}")
+          print(f"- false positives: {100*r['benign']['fp_rate']:.2f}% of {r['benign']['total']} benign requests")
+          print(f"- inspection p50 {l['p50']/1000:.1f} µs, p99 {l['p99']/1000:.1f} µs")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: autoeval-report
+          path: autoeval-out/
+
   compare:
     # Head-to-head with OWASP Coraza + Core Rule Set on identical requests,
     # at every paranoia level (a fair baseline compares against CRS PL1-PL4).
