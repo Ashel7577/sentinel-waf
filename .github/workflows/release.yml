@@ -36,6 +36,6 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" dist/checksums.txt.sigstore.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: "dist/*.tar.gz, dist/*.zip"
