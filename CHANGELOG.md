@@ -6,6 +6,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased] - 0.2.0
 
 ### Added
+- **Autonomous evaluation engine** (`cmd/sentinel-autoeval`, `internal/redteam`): adaptive evasion search
+  guided by the WAF's verdicts, backend oracle (`internal/testapp`), auto-tuning across paranoia levels,
+  evidence chain, run history and a PDF-ready report. Runs in CI as a regression gate (fails on any bypass).
+- High-resolution clock (`internal/hrclock`) for accurate microsecond latency on Windows.
 - **Parser-differential guard** (`internal/parsediff`). Every request body is read the way several parsers
   would read it: Go's own standard library (identical to what a Go backend receives), a strict RFC reading,
   and the lenient behaviours other frameworks are known to have. All values from all readings are
@@ -28,6 +32,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Release engineering: SECURITY.md, threat model, goreleaser builds, keyless cosign signatures and SLSA
   build provenance on releases, OpenSSF Scorecard, Dependabot, native Go fuzzing in CI, CRS comparison at
   paranoia levels 1-4.
+
+### Fixed
+- Rule 3004 (reverse shell) missed `nc host port -e /bin/sh` when host and port come before `-e`, and its
+  prefilter was case-sensitive. Found by the autonomous engine (12 confirmed bypasses); four regression
+  payloads added.
 
 ## [0.1.0] - 2026-11-24
 

